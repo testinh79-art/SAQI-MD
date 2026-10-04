@@ -162,6 +162,8 @@ setInterval(() => {
 // ---------- multi-session registry ----------
 // sessionId -> { sock, reconnects, user, starting, dead }
 const sessions = new Map();
+// health endpoint ko asli halat batane ke liye sessions map expose karo (server.js padhta hy)
+global.__SAQI_SESSIONS = sessions;
 let baileysVersion = null;
 // antidelete: har session ke akhri messages ki sada copy (messageId -> info)
 const msgCache = new Map();
@@ -295,20 +297,31 @@ async function startSession(sessionId) {
           console.log(`[SAQI-MD] [${sessionId}] logged out — session deleted`);
         } else if (code === 440 || code === DisconnectReason.connectionReplaced) {
           // ---------- 440 = CONNECTION REPLACED (sab se bara speed killer) ----------
-          // Ye tab hota hy jab WAHI session do jagah chal rahi ho (jaise Railway + purana
-          // host, ya do replicas). WhatsApp ek ko rakhta hy aur doosre ko kick karta hy —
-          // bot "connected" aur "closed" ke beech loop karta rehta hy, aur jab user command
-          // bhejta hy to us waqt bot disconnected hota hy → WhatsApp timeout = "3 second lag".
-          // Hal: pehle isi session ke purane socket ko zabardasti band karo (duplicate khatam),
-          // phir THORI dair baad reconnect karo taake WhatsApp ki taraf se settle ho jaye.
+          // Ye tab hota hy jab WAHI session do jagah chal rahi ho. WhatsApp ek ko rakhta hy
+          // aur doosre ko kick karta hy — bot "connected"/"closed" ke beech loop karta rehta
+          // hy, aur jab user command bhejta hy to us waqt bot disconnected hota hy →
+          // WhatsApp timeout = "3 second lag".
+          //
+          // BUG JO YAHAN THA (aur loop hamesha ke liye bana deta tha):
+          //   entry.sock.end() khud apne aap 'connection.update' -> 'close' fire karta hy.
+          //   Us dobara aane wale close par bhi code 440 hota tha, aur `sessions.get(id) !== entry`
+          //   check fail hota tha (kyunke hum ne abhi delete nahi kiya) — natija: DO timers,
+          //   DO sockets, aur 440 hamesha. Ab:
+          //   1. ek hi restart chalega (entry.__restarting flag)
+          //   2. map se PEHLE delete, phir socket end — taake dobara close handler skip kare
+          //   3. agar baar baar 440 aa raha hy to backoff barhta jayega (5s -> 5 min)
+          if (entry.__restarting) return; // is entry ka restart pehle se chal raha hy
+          entry.__restarting = true;
           console.log(`[SAQI-MD] [${sessionId}] 440 conflict — duplicate socket band kar ke dobara jur rahe hain`);
+          sessions.delete(sessionId);          // PEHLE delete: dobara close event ignore ho jaye
+          entry.dead = true;
           try { entry.sock?.end(); } catch {}
           entry.reconnects++;
-          // 440 par backoff lamba rakho — foran reconnect karne se conflict dobara banta hy
-          const delay = Math.min(5000 + entry.reconnects * 2000, 30000);
+          // bar bar 440 = asli duplicate kisi aur jagah zinda hy. Backoff tezi se barhao
+          // (5s, 10s, 20s, 40s, ... max 5 min) taake WhatsApp ko settle hone ka waqt mile.
+          const delay = Math.min(5000 * Math.pow(2, Math.min(entry.reconnects - 1, 6)), 300000);
+          console.log(`[SAQI-MD] [${sessionId}] 440 backoff ${Math.round(delay / 1000)}s (try ${entry.reconnects})`);
           setTimeout(() => {
-            if (sessions.get(sessionId) !== entry || entry.dead) return;
-            sessions.delete(sessionId);
             startSession(sessionId).catch((e) => console.error(`[SAQI-MD] [${sessionId}] 440 restart fail:`, e.message));
           }, delay);
         } else {

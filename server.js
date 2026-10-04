@@ -238,7 +238,32 @@ async function getApp() {
     res.json({ ok: true, status: e.status, code: e.code ? fmt(e.code) : null, linked: e.status === 'linked' });
   });
 
-  app.get('/health', (req, res) => res.json({ ok: true, service: 'saqi-md-pair', build: 'v17-fresh', active: !!active }));
+  // HEALTH: pehle ye hamesha ok:true deta tha — chahe koi session zinda na ho. Railway
+  // ko pata nahi chalta tha ke bot mar chuka hy. Ab asli halat batata hy: kitne sessions
+  // mojood hain, kitne connected hain. `healthy` sirf tab true hy jab koi session ho aur
+  // wo juda hua ho (ya koi session ho hi na — naya setup).
+  app.get('/health', (req, res) => {
+    let sessionsInfo = { total: 0, connected: 0, healthy: true };
+    try {
+      const S = global.__SAQI_SESSIONS;
+      if (S && typeof S.size === 'number') {
+        let conn = 0;
+        for (const [, e] of S) { if (e && e.user) conn++; }
+        sessionsInfo = { total: S.size, connected: conn, healthy: S.size === 0 || conn > 0 };
+      }
+    } catch {}
+    res.json({
+      ok: true,
+      service: 'saqi-md-pair',
+      build: 'v18-stable',
+      active: !!active,
+      sessions: sessionsInfo.total,
+      connected: sessionsInfo.connected,
+      healthy: sessionsInfo.healthy,
+      uptime: Math.round(process.uptime()),
+      heapMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+    });
+  });
   app.use(express.static(path.join(__dirname, 'public')));
   app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
