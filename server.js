@@ -271,8 +271,11 @@ async function getApp() {
   return app;
 }
 
-// Vercel serverless entry — koi bhi boot error asli shape me report hota hy
-module.exports = async (req, res) => {
+// Export: agar worker ise `app.use()` se mount karta hy to usay asli EXPRESS APP
+// chahiye — warna `app(req,res)` poora request kha jata hy aur `next()` kabhi call nahi
+// hota, jis se worker ke baad ke routes (/health, /diag/*) DEAD ho jate hain.
+// Is liye hum function par `.expressApp` laga dete hain; worker usay prefer karta hy.
+const _export = async (req, res) => {
   try {
     const app = await getApp();
     app(req, res);
@@ -284,6 +287,9 @@ module.exports = async (req, res) => {
     });
   }
 };
+// worker.js mount ke liye: `const portal = require('./server'); portal.expressApp`
+_export.expressApp = getApp;
+module.exports = _export;
 
 const PORT = process.env.PORT || 3000;
 if (require.main === module && process.env.VERCEL !== '1') { // standalone + worker mount ke ilawa

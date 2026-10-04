@@ -852,7 +852,18 @@ app.get('/health', (req, res) => {
 });
 
 // Pairing portal ab mount — baqi sab routes (/, /pair, /api/*) server.js ke andar hain.
-app.use(require('./server'));
+// NOTE: `app.use(require('./server'))` galat tha — wo export ek Vercel-style handler hy jo
+// `next()` call nahi karta, is liye ye file ke BAAD wale sab routes (/health, /diag/*) dead
+// ho jate the. Ab asli Express app mount hota hy (async, is liye ek chhota bridge).
+const portal = require('./server');
+if (portal && portal.expressApp) {
+  portal.expressApp().then((portalApp) => {
+    app.use(portalApp);
+    console.log('[SAQI-MD] pairing portal mount ho gaya');
+  }).catch((e) => console.error('[SAQI-MD] portal mount fail:', e.message));
+} else {
+  app.use(portal);
+}
 
 // ---------- DIAGNOSTIC: Mongo me kitne session docs hain (440 duplicate dhoondhne ke liye) ----------
 // Ye batata hy ke kya ek hi number ke liye ek se zyada session doc mojood hain — jo 440
