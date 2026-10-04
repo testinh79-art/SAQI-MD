@@ -112,20 +112,32 @@ async function getApp() {
 
   async function requestCode(entry) {
     const attempt = ++entry.__attempts;
-    if (attempt > 3) { entry.status = 'error'; return; }
+    if (attempt > 5) { entry.status = 'error'; return; }
+    if (entry.status === 'linked' || !pairings.has(entry.id)) return;
 
-    // socket ka WhatsApp tak pohanchne ka intezar (race fix)
-    await new Promise(r => setTimeout(r, 3000));
+    // FAST PATH: socket pehle se WhatsApp se juda ho to foran code mango.
+    // Pehle yahan har dafa fixed 3s sleep hoti thi — isi se code late aata tha.
+    // Ab sirf tab intezar karte hain jab socket abhi tayyar na ho, aur wo bhi
+    // chhote-chhote steps me (200ms), taake jitni jaldi socket ready ho utni jaldi
+    // code nikal jaye — average 3s+ ki jaga ~0.5-1.5s.
+    if (!entry.sock?.ws?.isOpen) {
+      const deadline = Date.now() + 8000; // socket ready hone ka max intezar
+      while (Date.now() < deadline) {
+        if (entry.status === 'linked' || !pairings.has(entry.id)) return;
+        if (entry.sock?.ws?.isOpen) break;
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
     if (entry.status === 'linked' || !pairings.has(entry.id)) return;
 
     try {
       const code = await entry.sock.requestPairingCode(entry.number);
       entry.code = code;
       entry.status = 'code_ready';
-      console.log(`[PAIR] ${entry.number} -> ${fmt(code)}`);
+      console.log(`[PAIR] ${entry.number} -> ${fmt(code)} (attempt ${attempt}, ${Date.now() - entry.createdAt}ms)`);
     } catch (e) {
       console.log(`[PAIR] code fail (attempt ${attempt}): ${e.message}`);
-      if (attempt < 3) setTimeout(() => requestCode(entry).catch(() => {}), 3000);
+      if (attempt < 5) setTimeout(() => requestCode(entry).catch(() => {}), 1200);
       else entry.status = 'error';
     }
   }
@@ -170,6 +182,16 @@ async function getApp() {
         return res.json({ ok: true, id: number, code: null, status: 'pending' });
       }
       const entry = await createPairing(number);
+      // FAST PATH: agar code pehle hi ban gaya to foran wapis do (front-end ko
+      // ek bhi poll cycle ka intezar nahi karna padega).
+      if (entry.code) return res.json({ ok: true, id: entry.id, code: fmt(entry.code) });
+      // warna 4s tak khud intezar karo — zyada tar cases me code itni dair me aa jata hy,
+      // is se front-end ko turant milta hy (Vercel par 60s limit hy, 4s safe hy).
+      const deadline = Date.now() + 4000;
+      while (Date.now() < deadline) {
+        if (entry.code || entry.status === 'linked' || entry.status === 'error') break;
+        await new Promise(r => setTimeout(r, 150));
+      }
       if (entry.code) return res.json({ ok: true, id: entry.id, code: fmt(entry.code) });
       res.json({ ok: true, id: entry.id, code: null, status: entry.status });
     } catch (e) {

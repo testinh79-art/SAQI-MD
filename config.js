@@ -28,7 +28,9 @@ module.exports = {
 
   // ---- Worker (index.js) ----
   PORT: process.env.PORT || 3000,            // Koyeb health-check port
-  MAX_RECONNECTS: 50,
+  // 0 = koi limit nahi (2-month long-life mode). Sirf asli loggedOut par session
+  // khatam hota hy. Value set karo to wahi purana hard cap lagega.
+  MAX_RECONNECTS: parseInt(process.env.MAX_RECONNECTS || '0', 10),
 
   // ---- Pairing portal (server.js) ----
   PAIR_SOCKET_TTL_MS: 3 * 60 * 1000,         // pairing socket itni dair zinda rahega (link hone ke liye)

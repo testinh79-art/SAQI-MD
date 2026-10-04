@@ -46,21 +46,47 @@ async function handler(m, sock) {
       const cats = collectCommands();
       const total = Object.values(cats).reduce((a, c) => a + c.length, 0);
       if (!m.arg) {
-        // NAYA FONT: saaf monospace index — poora list ek message me nahi (13k commands)
-        const idx = Object.keys(cats).sort()
-          .map(cat => `◆ ${cat} — ${cats[cat].length}`)
-          .join('\n');
-        const txt = `╭─〔 *${config.BOT_NAME}* 〕─────⊷\n` +
-          `┊ ✦ Owner: ${config.OWNER_NAME}\n` +
-          `┊ ✦ Commands: ${total}\n` +
-          `┊ ✦ Uptime: ${fmtUptime(Math.floor((Date.now() - startAt) / 1000))}\n` +
-          `┊ ✦ Prefix: "${config.PREFIX}"\n` +
-          `╰──────────────────⊷\n\n` +
-          `📚 *CATEGORIES*\n${idx}\n\n` +
-          `▸ Category ki commands: ${config.PREFIX}menu <naam>\n` +
-          `▸ Har command ki detail: ${config.PREFIX}details <naam>\n\n` +
-          `> *© Powered by ${config.OWNER_NAME}*`;
+        // NAYA MENU (v6): saaf, emoji-free headers, asli commands upar.
+        // 43k commands ka poora list bhejna bekaar hy — user ko kaam ki cheez chahiye.
+        // Is liye: sirf wo categories dikhao jin me ASLI (dummy nahi) commands hain,
+        // aur unki ginti ke sath. Dummy packs (x3/x4/x5) ko alag se niche rakha hy.
+        const up = Math.floor((Date.now() - startAt) / 1000);
+        const sorted = Object.keys(cats).sort((a, b) => cats[b].length - cats[a].length);
+
+        // chhoti categories (asli kaam wali) aur bari (bulk packs) ko alag karo
+        const core = sorted.filter(c => cats[c].length <= 300);
+        const bulk = sorted.filter(c => cats[c].length > 300);
+
+        const line = (cat) => `│ ${cat.padEnd(14)} ${String(cats[cat].length).padStart(6)}`;
+
+        let txt = '';
+        txt += `╭──────────────────────────────╮\n`;
+        txt += `│   ⚡ ${config.BOT_NAME}${' '.repeat(Math.max(0, 20 - config.BOT_NAME.length))}│\n`;
+        txt += `╰──────────────────────────────╯\n\n`;
+        txt += `  Owner     : ${config.OWNER_NAME}\n`;
+        txt += `  Prefix    : ${config.PREFIX}\n`;
+        txt += `  Commands  : ${total.toLocaleString('en-US')}\n`;
+        txt += `  Uptime    : ${fmtUptime(up)}\n\n`;
+        txt += `━━━ *MAIN CATEGORIES* ━━━\n`;
+        txt += `\`\`\`\n${core.map(line).join('\n')}\n\`\`\`\n`;
+        if (bulk.length) {
+          txt += `━━━ *BULK PACKS* ━━━\n`;
+          txt += `\`\`\`\n${bulk.map(line).join('\n')}\n\`\`\`\n`;
+        }
+        txt += `\n*Kaise use karein*\n`;
+        txt += `  ${config.PREFIX}menu <category>  — us category ki commands\n`;
+        txt += `  ${config.PREFIX}details <naam>   — kisi bhi command ki detail\n`;
+        txt += `  ${config.PREFIX}menu all        — sab categories\n\n`;
+        txt += `_${config.BOT_NAME} v${config.BOT_VERSION} — ${config.OWNER_NAME}_`;
         return m.reply(txt);
+      }
+
+      // .menu all — sab categories ek sath (chhota, sirf ginti)
+      if (m.arg.trim().toLowerCase() === 'all') {
+        const all = Object.keys(cats).sort()
+          .map(c => `│ ${c.padEnd(16)} ${String(cats[c].length).padStart(6)}`)
+          .join('\n');
+        return m.reply(`━━━ *SAB CATEGORIES* ━━━\n\`\`\`\n${all}\n\`\`\``);
       }
       // .menu <category> [page]
       const parts = m.arg.trim().split(/\s+/);

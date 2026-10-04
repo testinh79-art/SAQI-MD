@@ -175,6 +175,8 @@ async function startSession(sessionId) {
         entry.starting = false;
         entry.reconnects = 0;
         entry.user = entry.sock.user?.id || null;
+        entry.__connectedAt = Date.now();   // watchdog ke liye
+        entry.__lastSeen = Date.now();
         console.log(`[SAQI-MD] ✅ [${sessionId}] connected as ${entry.user}`);
       }
       if (connection === 'close') {
@@ -189,17 +191,26 @@ async function startSession(sessionId) {
           sessions.delete(sessionId);
           try { entry.sock.end(); } catch {}
           console.log(`[SAQI-MD] [${sessionId}] logged out — session deleted`);
-        } else if (entry.reconnects < config.MAX_RECONNECTS) {
+        } else {
+          // LONG-LIFE RECONNECT (2-month ka hal):
+          // Pehle yahan MAX_RECONNECTS ke baad session hamesha ke liye chhor diya
+          // jata tha — 50 failures = session dead, dobara pair karna padta tha.
+          // Ab koi hard limit nahi: backoff 3s se 60s tak barhta hy, phir 60s par
+          // ruk jata hy aur session hamesha retry karta rehta hy. Is se:
+          //   - network down / WhatsApp outage / phone offline — sab khud theek ho jata hy
+          //   - 2 mahine (ya zyada) tak session zinda rehta hy
+          // Sirf asli loggedOut par session khatam hota hy (wo upar handle hota hy).
           entry.reconnects++;
+          // 20 failures ke baad "sustained backoff" — 60s par cap, magar chalta rehta hy
+          const delay = Math.min(entry.reconnects * 3000, 60000);
+          if (entry.reconnects % 20 === 0) {
+            console.log(`[SAQI-MD] [${sessionId}] ${entry.reconnects} reconnects — ab 60s backoff par chalta rahega (session zinda hy)`);
+          }
           setTimeout(() => {
             if (sessions.get(sessionId) !== entry || entry.dead) return;
             sessions.delete(sessionId);
             startSession(sessionId).catch((e) => console.error(`[SAQI-MD] [${sessionId}] restart fail:`, e.message));
-          }, Math.min(entry.reconnects * 3000, 30000));
-        } else {
-          entry.dead = true;
-          entry.starting = false;
-          console.log(`[SAQI-MD] [${sessionId}] max reconnects — is session ko chhor diya`);
+          }, delay);
         }
       }
     });
@@ -208,6 +219,7 @@ async function startSession(sessionId) {
       if (type !== 'notify') return;
       for (const raw of messages) {
         try {
+          entry.__lastSeen = Date.now();   // watchdog: traffic aa rahi hy = socket zinda
           // delete-revoke protocol message bhi yahan aa sakta hy
           const pm = raw.message?.protocolMessage;
           if (pm && (pm.type === 'REVOKE' || pm.type === 0)) { await handleRevoke(entry, sessionId, { update: { message: { protocolMessage: pm }, key: pm.key } }); continue; }
@@ -629,6 +641,26 @@ app.use(require('./server'));
     await syncSessions();
     setInterval(syncSessions, 30 * 1000); // naye linked users har 30s me pick hote hain
     setInterval(processPairQueue, 2000); // pairing requests (portal queue se) — fast pickup
+
+    // ---------- WATCHDOG (2-month reliability) ----------
+    // Masla: session "zinda" dikhta hy magar socket silently mar chuka hota hy
+    // (network flap, WhatsApp side disconnect). Pehle aisa session hamesha ke liye
+    // atka reh jata tha — user ko lagta bot off ho gaya, halanki process chal raha tha.
+    // Hal: har 5 min check karo — jo session 10 min se connected nahi, usko zabardasti
+    // restart karo. Is se bot khud ko theek kar leta hy, bina kisi ko chhune.
+    setInterval(() => {
+      const now = Date.now();
+      for (const [sessionId, entry] of sessions) {
+        if (!entry.user) continue;              // already reconnecting — upar handle ho raha hy
+        const last = entry.__lastSeen || entry.__connectedAt || now;
+        if (now - last > 10 * 60 * 1000) {
+          console.log(`[SAQI-MD] [${sessionId}] watchdog: 10 min se silent — restart`);
+          sessions.delete(sessionId);
+          try { entry.sock?.end(); } catch {}
+          startSession(sessionId).catch(() => {});
+        }
+      }
+    }, 5 * 60 * 1000).unref();
   } else {
     console.log(`[SAQI-MD] single-session file mode (MONGODB_URI nahi diya gaya)`);
     await startSession(config.SESSION_ID);

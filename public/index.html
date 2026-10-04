@@ -6,8 +6,7 @@
   <title>SAQI-MD | Generate Your Pairing Code</title>
   <link rel="stylesheet" href="style.css"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
-</head>
+  </head>
 <body>
   <div class="orbs"><span></span><span></span><span></span></div>
 
@@ -23,7 +22,7 @@
     <p class="hint">Include country code (e.g., 92 for Pakistan)</p>
 
     <button class="btn" id="btn"><i class="fa-solid fa-key"></i> Generate Pair Code</button>
-    <p class="note">No QR scanning needed — code expires in a few minutes.</p>
+    <p class="note">No QR scanning needed. Code <b>3 minute</b> tak valid rehta hy.</p>
 
     <div class="codebox" id="box">
       <p class="small">Your pairing code:</p>
@@ -68,6 +67,8 @@
       $('btn').disabled = true; $('btn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
       $('err').style.display = 'none'; $('box').classList.remove('show'); stopPoll();
       localStorage.setItem('saqiPair', JSON.stringify({ id: num, num, t: Date.now() }));
+      // FAST: pehle se hi wait UI dikha do, taake jaise hi code aaye foran replace ho jaye
+      showWait();
 
       try {
         const r = await fetch('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ number: num }) });
@@ -77,8 +78,7 @@
         if (d.code) { showCode(d.code); }
         else {
           $('btn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Code ban raha hy...';
-          showWait();
-          poll(d.id);
+          poll(d.id);   // wait UI pehle se khula hy
         }
       } catch (e) { showErr('Server se connection nahi bana — dobara try karo.'); }
       $('btn').disabled = false; $('btn').innerHTML = '<i class="fa-solid fa-key"></i> Generate Pair Code';
@@ -92,7 +92,7 @@
       clearInterval(window._wt);
       window._wt = setInterval(() => {
         const s = Math.round((Date.now() - t0) / 1000);
-        $('waitmsg').textContent = 'Aam tor par 4-5 second lagte hyn... (' + s + 's) — page khula chhoro, code khud aa jayega';
+        $('waitmsg').textContent = 'Code ban raha hy... (' + s + 's) — page khula chhoro, code khud aa jayega';
       }, 1000);
     }
     function stopWait() { clearInterval(window._wt); $('waitmsg').style.display = 'none'; }
@@ -105,7 +105,7 @@
           if (d.code) { showCode(d.code); stopPoll(); }
           if (d.linked) { localStorage.removeItem('saqiPair'); stopWait(); $('linked').style.display = 'block'; stopPoll(); }
         } catch (e) {}
-      }, 1500);
+      }, 800);
       setTimeout(stopPoll, 300000);
     }
     function stopPoll() { if (pollTimer) clearInterval(pollTimer); pollTimer = null; }
