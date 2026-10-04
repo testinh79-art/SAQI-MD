@@ -51,6 +51,16 @@
 
     // page reload ho jaye to bhi chalti hui request khud pakar lo (refresh-safe)
     window.addEventListener('load', () => {
+      // pehle: jo code mil chuka hy wo wapis dikha do (serverless par status poll
+      // naye process me khoti ho jati hy, is liye code client par bhi rakhte hain)
+      const savedCode = localStorage.getItem('saqiCode');
+      if (savedCode) {
+        try {
+          const c = JSON.parse(savedCode);
+          if (Date.now() - c.t < 10 * 60 * 1000) { $('num').value = c.num || ''; showCode(c.code); return; }
+          localStorage.removeItem('saqiCode');
+        } catch (e) {}
+      }
       const saved = localStorage.getItem('saqiPair');
       if (!saved) return;
       try {
@@ -71,11 +81,17 @@
       showWait();
 
       try {
-        const r = await fetch('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ number: num }) });
-        const d = await r.json();
+        // code 4s tak aa sakta hy — Vercel function ko itni dair chalne do
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 55000);
+        let r, d;
+        try {
+          r = await fetch('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ number: num }), signal: ctrl.signal });
+          d = await r.json();
+        } finally { clearTimeout(to); }
         if (!d.ok) return showErr(d.error || 'Something went wrong — try again.');
 
-        if (d.code) { showCode(d.code); }
+        if (d.code) { showCode(d.code); localStorage.setItem('saqiCode', JSON.stringify({ code: d.code, num, t: Date.now() })); }
         else {
           $('btn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Code ban raha hy...';
           poll(d.id);   // wait UI pehle se khula hy
