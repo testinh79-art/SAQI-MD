@@ -7,23 +7,83 @@ const { ytSearch, ytDownload } = require('../lib/functions');
 const GENERIC = ['twitter','gdrive','capcut','fb','igdl','igdl2','igdl3','igmp3','mediafire','megadl','download','ytpost'];
 
 async function tiktokDL(m, sock) {
-  const r = await fetch(`https://tikwm.com/api/?url=${encodeURIComponent(m.arg)}`).then(r => r.json());
-  if (!r.data) return m.reply('❌ Video nahi mili. Link check karo.');
-  if (m.command === 'ttmp3') {
-    return sock.sendMessage(m.chat, { audio: { url: r.data.music }, mimetype: 'audio/mpeg' }, { quoted: m });
+  if (!m.arg) return m.reply('❌ TikTok link do.');
+  // cobalt pehle (khud-hosted, reliable), tikwm fallback.
+  const base = (config.COBALT_API || '').trim();
+  const wantAudio = m.command === 'ttmp3';
+  if (base) {
+    try {
+      const r = await fetch(base, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          url: m.arg,
+          downloadMode: wantAudio ? 'audio' : 'auto',
+          audioFormat: 'mp3',
+          videoQuality: '720',
+          filenameStyle: 'basic',
+        }),
+        signal: AbortSignal.timeout(45000),
+      });
+      const j = await r.json().catch(() => null);
+      if (j && (j.status === 'tunnel' || j.status === 'redirect' || j.status === 'stream') && j.url) {
+        const res = await fetch(j.url, { redirect: 'follow', signal: AbortSignal.timeout(90000) });
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer());
+          if (buf.length > 10000) {
+            return wantAudio
+              ? sock.sendMessage(m.chat, { audio: buf, mimetype: 'audio/mpeg' }, { quoted: m })
+              : sock.sendMessage(m.chat, { video: buf, caption: `⬇️ *TikTok* — ${config.BOT_NAME}` }, { quoted: m });
+          }
+        }
+      }
+    } catch (e) { console.error('[tiktokDL cobalt]', e.message); }
   }
-  await sock.sendMessage(m.chat, { video: { url: r.data.play }, caption: `⬇️ *TikTok* — ${config.BOT_NAME}` }, { quoted: m });
+  // fallback: tikwm
+  try {
+    const r = await fetch(`https://tikwm.com/api/?url=${encodeURIComponent(m.arg)}`).then(r => r.json());
+    if (!r.data) return m.reply('❌ Video nahi mili. Link check karo.');
+    if (wantAudio) {
+      return sock.sendMessage(m.chat, { audio: { url: r.data.music }, mimetype: 'audio/mpeg' }, { quoted: m });
+    }
+    await sock.sendMessage(m.chat, { video: { url: r.data.play }, caption: `⬇️ *TikTok* — ${config.BOT_NAME}` }, { quoted: m });
+  } catch (e) {
+    console.error('[tiktokDL tikwm]', e.message);
+    return m.reply('❌ Download nahi ho saka. Baad mein try karo.');
+  }
 }
 
 async function genericDL(m, sock) {
-  const r = await fetch('https://api.cobalt.tools/api/json', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body: JSON.stringify({ url: m.arg }),
-  }).then(r => r.json());
-  if (r.status === 'error' || !r.url) return m.reply('❌ Download nahi ho saka. Link private ya unsupported hy.');
-  if (r.audio) return sock.sendMessage(m.chat, { audio: { url: r.audio }, mimetype: 'audio/mpeg' }, { quoted: m });
-  await sock.sendMessage(m.chat, { video: { url: r.url }, caption: `⬇️ *Download* — ${config.BOT_NAME}` }, { quoted: m });
+  // Pehle khud-hosted cobalt (sab platforms: fb, ig, twitter, reddit, tiktok...),
+  // phir purana public endpoint fallback ke tor par.
+  const base = (config.COBALT_API || '').trim();
+  if (base) {
+    try {
+      const r = await fetch(base, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ url: m.arg, videoQuality: '720', filenameStyle: 'basic' }),
+        signal: AbortSignal.timeout(45000),
+      });
+      const j = await r.json().catch(() => null);
+      if (j && (j.status === 'tunnel' || j.status === 'redirect' || j.status === 'stream') && j.url) {
+        const mediaRes = await fetch(j.url, { redirect: 'follow', signal: AbortSignal.timeout(90000) });
+        if (mediaRes.ok) {
+          const buf = Buffer.from(await mediaRes.arrayBuffer());
+          if (buf.length > 10000) {
+            const isAudio = /\.(mp3|m4a|opus)$/i.test(j.filename || '') || m.command === 'igmp3';
+            return isAudio
+              ? sock.sendMessage(m.chat, { audio: buf, mimetype: 'audio/mpeg' }, { quoted: m })
+              : sock.sendMessage(m.chat, { video: buf, caption: `⬇️ *Download* — ${config.BOT_NAME}` }, { quoted: m });
+          }
+        }
+      }
+      if (j && j.status === 'error') {
+        return m.reply('❌ Download nahi ho saka. Link private ya unsupported hy.');
+      }
+    } catch (e) { console.error('[genericDL]', e.message); }
+  }
+  return m.reply('❌ Download nahi ho saka. Link check karo (private ya unsupported ho sakta hy).');
 }
 
 async function ytDL(m, sock) {

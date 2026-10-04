@@ -38,6 +38,9 @@ module.exports = {
   // ---- AI (optional — .ai commands) ----
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
   GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-flash-latest',
+  // Downloader backend: khud-hosted cobalt (public instances sab YouTube se block ho chuke hyn).
+  // Railway par apni cobalt service — isi project ke andar, private network par bhi reachable.
+  COBALT_API: process.env.COBALT_API || 'https://cobalt-production-d95c.up.railway.app/',
 
   isOwner(jid) {
     const num = String(jid || '').split('@')[0].replace(/[^0-9]/g, '');
