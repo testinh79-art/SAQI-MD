@@ -881,15 +881,18 @@ app.get('/diag/sessions', async (req, res) => {
 
 // ---------- live test hook (LOCALHOST ONLY) — session ke apne chat me command bhej kar asli jawab pakarta hy ----------
 app.get('/livetest', async (req, res) => {
+  // localhost-only tha — Railway par is liye kabhi call hi nahi ho sakta tha.
+  // Ab: localhost allowed, ya ?key=<SESSION_PREFIX> do (wahi key jo /diag/sessions use karta hy).
   const ip = req.socket.remoteAddress || '';
-  if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip)) return res.status(403).json({ ok: false, err: 'localhost only' });
+  const isLocal = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip);
+  if (!isLocal && String(req.query.key || '') !== String(config.SESSION_PREFIX)) return res.status(403).json({ ok: false, err: 'forbidden' });
   const num = String(req.query.num || '').replace(/[^0-9]/g, '');
   const text = String(req.query.text || '');
-  const sid = 'SAQI:' + num;
+  const sid = config.SESSION_PREFIX + ':' + num;
   const entry = sessions.get(sid);
   if (!entry || !entry.sock || !entry.user) return res.status(404).json({ ok: false, err: 'session not connected' });
   const toNum = String(req.query.to || '').replace(/[^0-9]/g, '');
-  const tEntryPre = toNum ? sessions.get('SAQI:' + toNum) : null;
+  const tEntryPre = toNum ? sessions.get(config.SESSION_PREFIX + ':' + toNum) : null;
   const toLid = tEntryPre && tEntryPre.sock && tEntryPre.sock.user && tEntryPre.sock.user.lid ? String(tEntryPre.sock.user.lid).split(':')[0] + '@lid' : null;
   const targetJid = req.query.sendto || toLid || (toNum ? toNum + '@s.whatsapp.net' : (String(entry.sock.user.id).split(':')[0].split('@')[0] + '@s.whatsapp.net'));
   const replys = [];
@@ -907,7 +910,7 @@ app.get('/livetest', async (req, res) => {
   };
   const cap1 = mkCap('from');
   entry.sock.ev.on('messages.upsert', cap1);
-  const tEntry = toNum ? sessions.get('SAQI:' + toNum) : null;
+  const tEntry = toNum ? sessions.get(config.SESSION_PREFIX + ':' + toNum) : null;
   const cap2 = tEntry ? mkCap('target') : null;
   if (cap2) tEntry.sock.ev.on('messages.upsert', cap2);
   var sendErr = null, sendKey = null;
@@ -926,7 +929,6 @@ app.get('/livetest', async (req, res) => {
   if (cap2) tEntry.sock.ev.off('messages.upsert', cap2);
   if (res.headersSent) return;
   res.json({ ok: true, sent: text, to: toNum || 'self', replies: replys.slice(0, 4), caps: caps.slice(0, 10), sendErr, sendKey, fromUser: entry.sock.user, toUser: tEntry ? (tEntry.sock.user || null) : null });
-  res.json({ ok: true, sent: text, replies: replys.slice(0, 4) });
 });
 
 app.get('/', (req, res) => res.json({
