@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: saqi-md-pair
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: MONGODB_URI
+        sync: false
+      - key: SESSION_PREFIX
+        value: saqi-md
+    healthCheckPath: /health
+    autoDeploy: true

@@ -611,6 +611,11 @@ process.on('unhandledRejection', (e) => console.error('[unhandled]', e));
 // ---------- health endpoint (Koyeb/Render ko chahiye) ----------
 const app = express();
 
+// Pairing portal PEHLE mount — warna neeche wala app.get('/') isko shadow kar deta
+// hy aur / par pairing page ki jaga JSON aa jati hy. Portal ke andar hi /health,
+// /pair, /api/* sab mojood hain (server.js), is liye EK service = website + bot.
+app.use(require('./server'));
+
 // ---------- live test hook (LOCALHOST ONLY) — session ke apne chat me command bhej kar asli jawab pakarta hy ----------
 app.get('/livetest', async (req, res) => {
   const ip = req.socket.remoteAddress || '';
@@ -681,8 +686,7 @@ httpServer.on('error', (e) => {
   }
 });
 
-// Pairing portal isi server par mount — EK service = pairing website + bot 24/7
-app.use(require('./server'));
+// (portal upar mount ho chuka hy — app.use(require('./server')))
 
 // ---------- go ----------
 (async () => {
