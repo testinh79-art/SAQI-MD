@@ -181,6 +181,13 @@ function cacheMessage(sessionId, raw, m) {
     t: Date.now(),
   });
   if (cache.size > 400) cache.delete(cache.keys().next().value);
+  // SPEED: poora raw message bhi rakho — Baileys ka getMessage isse serve karta hy, jis se
+  // quoting par retry nahi hota aur jawab foran jata hy.
+  if (raw.key?.id && raw.message) {
+    if (!global.__msgCache) global.__msgCache = new Map();
+    global.__msgCache.set(raw.key.id, raw.message);
+    if (global.__msgCache.size > 500) global.__msgCache.delete(global.__msgCache.keys().next().value);
+  }
 }
 
 async function handleRevoke(entry, sessionId, u) {
@@ -226,14 +233,22 @@ async function startSession(sessionId) {
       emitOwnEvents: false,
       fireInitQueries: true,
       connectTimeoutMs: 60000,
-      defaultQueryTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 15000,
       keepAliveIntervalMs: 25000,
-      retryRequestDelayMs: 250,
+      retryRequestDelayMs: 80,
       // ANTIBAN: history sync ka poora payload na mango (naye device par bulk fetch = red flag)
       shouldSyncHistoryMessage: () => false,
-      getMessage: async () => undefined,
+      // SPEED/STABILITY: Baileys isse quoting aur retry ke waqt call karta hy. Pehle ye
+      // undefined return karta tha, jis se har quoted reply par retry + 250ms delay hota tha.
+      // Ab apne cached messages se serve karta hy (retry messages mein bhi).
+      getMessage: async (key) => {
+        try {
+          const c = global.__msgCache && global.__msgCache.get(key.id);
+          if (c) return c;
+        } catch {}
+        return undefined;
+      },
       // ANTIBAN: phone ko "typing" dikhane wali auto presence sirf tab jab toggle on ho
-      markOnlineOnConnect: getToggle('online') !== false,
     });
     entry.sock.ev.on('creds.update', saveCreds);
 
@@ -534,14 +549,16 @@ async function handleMessage(sock, raw, pre) {
     ['song','play','music','video','ytmp3','ytmp4','tiktok','tiktoksearch','facebook','fb','instagram','igdl','ig','capcut','gdrive','mediafire','megadl','apk','ai','gpt','gemini','chatgpt','sticker','s','attp','tomp3','tts','quote']
   ));
   if (slowCmds.has(m.command)) {
-    await sock.sendMessage(m.chat, { text: `⚡ *Processing...*` }, { quoted: m }).catch(() => {});
+    // SPEED: ack ko await na karo — warna asli jawab ack ke baad ruk jata hai (do round trips)
+    sock.sendMessage(m.chat, { text: `⚡ *Processing...*` }, { quoted: m }).catch(() => {});
   }
 
   console.log(`[CMD] ${m.command} | ${m.pushname} | ${m.isGroup ? 'group' : 'dm'}`);
   try {
-    // recording / autotyping presence
-    if (getToggle('recording')) await sock.sendPresenceUpdate('recording', m.chat).catch(() => {});
-    else if (getToggle('autotyping')) await sock.sendPresenceUpdate('composing', m.chat).catch(() => {});
+    // recording / autotyping presence — SPEED: ye bhi network call hai, await karne se
+    // har command se pehle extra delay aata tha. Background me bhej do.
+    if (getToggle('recording')) sock.sendPresenceUpdate('recording', m.chat).catch(() => {});
+    else if (getToggle('autotyping')) sock.sendPresenceUpdate('composing', m.chat).catch(() => {});
     const t0 = Date.now();
     await cmd.handler(m, sock);
     const dt = Date.now() - t0;
