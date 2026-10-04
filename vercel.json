@@ -1,6 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/**.js": { "maxDuration": 60 }
-  }
+    "api/[[...path]].js": { "maxDuration": 60 },
+    "api/status/[id].js": { "maxDuration": 60 }
+  },
+  "rewrites": [
+    { "source": "/health", "destination": "/api/health" },
+    { "source": "/pair", "destination": "/api/pair" },
+    { "source": "/api/status/:id", "destination": "/api/status/[id]" },
+    { "source": "/api/pair", "destination": "/api/pair" }
+  ]
 }
