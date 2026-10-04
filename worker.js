@@ -396,8 +396,22 @@ async function handleMessage(sock, raw) {
       flag: 'flagpk', capital: 'capitalpk', university: 'unipk',
     };
     const syn = SYN[m.command.toLowerCase()];
-    const sc = syn && commands.get(syn);
-    if (sc) return sc.handler({ ...m, command: syn, arg: rawArg || m.arg });
+    if (syn) {
+      const sc = commands.get(syn);
+      // agar exact synonym command mojood hy to chalao
+      if (sc) return sc.handler({ ...m, command: syn, arg: rawArg || m.arg });
+      // warna synonym + arg jor kar dekho — ".temp lahore" -> temperaturelahore,
+      // ".wthr karachi" -> wthrkarachi, ".rashi aries" -> zodiacaries
+      const argTxt = String(rawArg || m.arg || '').trim().toLowerCase().replace(/\s+/g, '');
+      if (argTxt) {
+        const joined = syn + argTxt;
+        const jc = commands.get(joined);
+        if (jc) return jc.handler({ ...m, command: joined, arg: '' });
+        // aur agar user ne aisa likha jo family prefix se match karta hy (".wthr karachi")
+        const fam = commands.get(m.command.toLowerCase() + argTxt);
+        if (fam) return fam.handler({ ...m, command: m.command.toLowerCase() + argTxt, arg: '' });
+      }
+    }
     // 3) dist/time/namaz/tr/comp/font jaise families: prefix match, phir sahi variant dhoondo
     const q0 = m.command.toLowerCase();
     const FAM = [

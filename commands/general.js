@@ -106,8 +106,14 @@ async function handler(m, sock) {
       const t0 = Date.now();
       const sent = await sock.sendMessage(m.chat, { text: '🏓 ...' }, { quoted: m });
       const latency = Date.now() - t0;
-      await sock.sendMessage(m.chat, { text: `🏓 *Pong!*\n⚡ Speed: *${latency}ms*\n⏱️ Uptime: ${fmtUptime(Math.floor((Date.now() - startAt) / 1000))}`, edit: sent.key });
-      return;
+      const body = `🏓 *Pong!*\n⚡ Speed: *${latency}ms*\n⏱️ Uptime: ${fmtUptime(Math.floor((Date.now() - startAt) / 1000))}`;
+      // edit optional hy — kuch clients/situations me edit support nahi hoti, aur
+      // us surat me poora command crash ho jata tha. Ab edit fail ho to naya
+      // message bhej dete hain.
+      if (sent && sent.key) {
+        try { return await sock.sendMessage(m.chat, { text: body, edit: sent.key }); } catch {}
+      }
+      return sock.sendMessage(m.chat, { text: body });
     }
     case 'ping2': {
       const t0 = Date.now();
