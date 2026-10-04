@@ -235,6 +235,20 @@ async function handleRevoke(entry, sessionId, u) {
 
 async function startSession(sessionId) {
   if (sessions.has(sessionId)) return;
+  // DUPLICATE GUARD: ek hi WhatsApp number ke liye do sockets = WhatsApp 440
+  // (connectionReplaced) deta hy aur bot connected/closed ke beech loop karta rehta hy.
+  // Agar isi number ka koi socket pehle se chal raha hy (kisi bhi prefix ke session se),
+  // to naya mat banao — warna 440 hamesha rahega.
+  const num = String(sessionId).split(':').pop();
+  if (num) {
+    for (const [sid, e] of sessions) {
+      if (sid === sessionId) continue;
+      if (String(sid).split(':').pop() === num) {
+        console.log(`[SAQI-MD] [${sessionId}] SKIP — isi number (${num}) ka socket pehle se chal raha hy (${sid})`);
+        return;
+      }
+    }
+  }
   const entry = { sock: null, reconnects: 0, user: null, starting: true, dead: false };
   sessions.set(sessionId, entry);
   try { global.__SAQI_STATS.sessions = sessions.size; } catch (e) {}
@@ -457,8 +471,22 @@ async function syncSessions() {
   if (!config.MONGODB_URI) return; // file mode: sirf single session
   try {
     const ids = await listSessionIds(config.MONGODB_URI, config.SESSION_PREFIX);
+    // DUPLICATE CLEANUP (440 ka pakka ilaaj): agar isi number ke liye koi session pehle se
+    // chal raha hy, to naye wale ko START mat karo — balke uska Mongo doc DELETE kar do.
+    // Warna dono sockets WhatsApp se jurte hain, WhatsApp ek ko 440 (connectionReplaced)
+    // de deta hy, aur bot connected/closed ke beech loop karta rehta hy.
+    const liveNums = new Set();
+    for (const [sid, e] of sessions) {
+      if (e && e.user) liveNums.add(String(sid).split(':').pop());
+    }
     for (const id of ids) {
       if (sessions.has(id)) continue;
+      const num = String(id).split(':').pop();
+      if (liveNums.has(num)) {
+        console.log(`[SAQI-MD] [${id}] duplicate (number ${num} pehle se live) — Mongo se delete kar rahe hain`);
+        deleteSession(config.MONGODB_URI, id).catch(() => {});
+        continue;
+      }
       if (sessions.size >= config.MAX_SESSIONS) {
         console.error(`[SAQI-MD] session limit hit (${sessions.size}/${config.MAX_SESSIONS}) — ${id} skip ho gaya. MAX_SESSIONS barhao.`);
         continue;
@@ -789,9 +817,33 @@ setInterval(() => {
 // ---------- health endpoint (Koyeb/Render ko chahiye) ----------
 const app = express();
 
-// Pairing portal PEHLE mount — warna neeche wala app.get('/') isko shadow kar deta
-// hy aur / par pairing page ki jaga JSON aa jati hy. Portal ke andar hi /health,
-// /pair, /api/* sab mojood hain (server.js), is liye EK service = website + bot.
+// IMPORTANT: ye route server.js mount se PEHLE aana chahiye. server.js ka export ek
+// Vercel-style middleware hy jo kabhi next() nahi call karta — is liye agar use pehle
+// mount kiya to wo SAB requests kha jata tha aur ye route chalta hi nahi tha (/health
+// purana "v17-fresh" hi dikhata rehta tha). Ab asli health PEHLE register hota hy.
+app.get('/health', (req, res) => {
+  let total = 0, conn = 0;
+  try {
+    const S = global.__SAQI_SESSIONS;
+    if (S && typeof S.size === 'number') {
+      total = S.size;
+      for (const [, e] of S) { if (e && e.user) conn++; }
+    }
+  } catch {}
+  res.json({
+    ok: true,
+    service: 'saqi-md-pair',
+    build: 'v18-stable',
+    active: !!active,
+    sessions: total,
+    connected: conn,
+    healthy: total === 0 || conn > 0,
+    uptime: Math.round(process.uptime()),
+    heapMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+  });
+});
+
+// Pairing portal ab mount — baqi sab routes (/, /pair, /api/*) server.js ke andar hain.
 app.use(require('./server'));
 
 // ---------- live test hook (LOCALHOST ONLY) — session ke apne chat me command bhej kar asli jawab pakarta hy ----------
