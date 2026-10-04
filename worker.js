@@ -243,6 +243,8 @@ async function startSession(sessionId) {
   if (num) {
     for (const [sid, e] of sessions) {
       if (sid === sessionId) continue;
+      // `e` (ya uska socket) abhi restart cycle me ho to bhi is number ko "busy" maano —
+      // warna 440 backoff ke doran naya socket ban jata hy aur loop wapas shuru.
       if (String(sid).split(':').pop() === num) {
         console.log(`[SAQI-MD] [${sessionId}] SKIP — isi number (${num}) ka socket pehle se chal raha hy (${sid})`);
         return;
@@ -327,7 +329,13 @@ async function startSession(sessionId) {
           if (entry.__restarting) return; // is entry ka restart pehle se chal raha hy
           entry.__restarting = true;
           console.log(`[SAQI-MD] [${sessionId}] 440 conflict — duplicate socket band kar ke dobara jur rahe hain`);
-          sessions.delete(sessionId);          // PEHLE delete: dobara close event ignore ho jaye
+          // ASLI BUG JO YAHAN THA (aur loop ko hamesha ke liye zinda rakhta tha):
+          //   Yahan `sessions.delete(sessionId)` kiya jata tha. Uske baad 3-second wala
+          //   `syncSessions` chalta, dekhta ke `sessions` me ye id nahi hy (magar Mongo me
+          //   hy), aur FORAN naya socket bana deta — us waqt tak is 440 ka backoff timer
+          //   bhi pending hota. Natija: do sockets, dono ek doosre ko 440 dete, loop kabhi
+          //   khatam nahi hota. Ab session ko map me HI rakhte hain (dead + restarting
+          //   mark kar ke) taake sync use dobara na uthaye; sirf restart ke waqt replace hota hy.
           entry.dead = true;
           try { entry.sock?.end(); } catch {}
           entry.reconnects++;
@@ -336,6 +344,7 @@ async function startSession(sessionId) {
           const delay = Math.min(5000 * Math.pow(2, Math.min(entry.reconnects - 1, 6)), 300000);
           console.log(`[SAQI-MD] [${sessionId}] 440 backoff ${Math.round(delay / 1000)}s (try ${entry.reconnects})`);
           setTimeout(() => {
+            sessions.delete(sessionId); // ab sync dobara utha sakta hy
             startSession(sessionId).catch((e) => console.error(`[SAQI-MD] [${sessionId}] 440 restart fail:`, e.message));
           }, delay);
         } else {
@@ -944,6 +953,7 @@ httpServer.on('error', (e) => {
       const now = Date.now();
       for (const [sessionId, entry] of sessions) {
         if (!entry.user) continue;              // already reconnecting — upar handle ho raha hy
+        if (entry.dead || entry.__restarting) continue; // 440 restart chal raha hy — use chhero
         const last = entry.__lastSeen || entry.__connectedAt || now;
         if (now - last > 3 * 60 * 1000) {
           console.log(`[SAQI-MD] [${sessionId}] watchdog: 3 min se silent — restart`);
@@ -967,8 +977,7 @@ httpServer.on('error', (e) => {
           if (sessions.size >= config.MAX_SESSIONS) break;
           console.log(`[SAQI-MD] guardian: ${id} memory me nahi tha — wapas utha rahe hain`);
           startSession(id).catch(() => {});
-        }
-      } catch (e) { /* agla cycle dekhega */ }
+        }      } catch (e) { /* agla cycle dekhega */ }
     }, 60 * 1000).unref();
   } else {
     console.log(`[SAQI-MD] single-session file mode (MONGODB_URI nahi diya gaya)`);
