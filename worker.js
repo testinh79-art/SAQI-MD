@@ -136,9 +136,28 @@ setInterval(async () => {
       await kvSet('x3seen:' + sessionId + ':viewers', [...new Set([...(old || []), ...vs])].slice(-20000));
       const oc = await kvGet('x3seen:' + sessionId + ':chats', []);
       await kvSet('x3seen:' + sessionId + ':chats', [...new Set([...(oc || []), ...cs])].slice(-5000));
+      // LEAK FIX (2-month): pehle ye Sets flush ke baad bhi bhare rehte the — 2 mahine me
+      // har chat/viewer ka naam memory me jama hota rehta tha aur bot OOM ho jata tha.
+      // Ab Mongo me likhne ke baad memory se khali kar dete hain (Mongo hi source of truth hy).
+      b.viewers.clear();
+      b.chats.clear();
     }
   } catch (e) { console.log('[SAQI-MD] seen-flush fail:', e.message); }
 }, 60000).unref();
+
+// SESSION LEAK GUARD: agar koi session logout ho kar map me reh gaya ho to uski _seen
+// entry bhi hata do — warna dead sessions ki memory hamesha ke liye pare rehti hy.
+setInterval(() => {
+  try {
+    for (const sessionId of _seen.keys()) {
+      if (!sessions.has(sessionId)) { _seen.delete(sessionId); }
+    }
+    // msgCache: sirf live sessions ki entries rakho
+    for (const sessionId of msgCache.keys()) {
+      if (!sessions.has(sessionId)) { msgCache.delete(sessionId); }
+    }
+  } catch {}
+}, 10 * 60 * 1000).unref();
 
 // ---------- multi-session registry ----------
 // sessionId -> { sock, reconnects, user, starting, dead }
@@ -560,7 +579,21 @@ async function handleMessage(sock, raw, pre) {
     if (getToggle('recording')) sock.sendPresenceUpdate('recording', m.chat).catch(() => {});
     else if (getToggle('autotyping')) sock.sendPresenceUpdate('composing', m.chat).catch(() => {});
     const t0 = Date.now();
+    // ---------- 1-SECOND GUARANTEE ----------
+    // Masla: network commands (wthr, btc2usd, translate, downloader) API ka intezar karte hain.
+    // Agar API slow ho to user 5-10s tak khamosh baithta hy. Hal: 900ms ka soft deadline —
+    // agar us waqt tak jawab nahi bana to foran ek "kaam ho raha hy" message jata hy, aur
+    // asli jawab jab tayyar ho kar aata hy. Is se user ko 1s ke andar kuch na kuch milta hy.
+    let _replied = false;
+    const _origReply = m.reply.bind(m);
+    m.reply = (t, ...a) => { _replied = true; return _origReply(t, ...a); };
+    const _softTimer = setTimeout(() => {
+      if (_replied) return;
+      sock.sendMessage(m.chat, { text: `⏳ *${m.command}* par kaam ho raha hy...` }).catch(() => {});
+    }, 900);
+
     await cmd.handler(m, sock);
+    clearTimeout(_softTimer);
     const dt = Date.now() - t0;
     if (dt > 1200 && !slowCmds.has(m.command)) {
       slowCmds.add(m.command);
@@ -699,8 +732,28 @@ async function processPairQueue() {
 }
 
 // ---------- anti-crash ----------
-process.on('uncaughtException', (e) => console.error('[uncaught]', e));
-process.on('unhandledRejection', (e) => console.error('[unhandled]', e));
+// ---------- 2-MONTH RELIABILITY: process kabhi na mare ----------
+// Ek bhi unhandled error pehle poore bot ko gira sakta tha (Railway container restart =
+// sab sessions ka reconnect = user ko "bot off" lagta hy). Ab har error log hota hy,
+// bot chalta rehta hy. Sirf asli memory-crisis par restart (OOM se bachne ke liye).
+let _errCount = 0, _errWindowStart = Date.now();
+process.on('uncaughtException', (e) => {
+  _errCount++;
+  console.error('[uncaught]', e && e.message ? e.message : e);
+  // agar 5 min me 200+ errors aayein to kuch bunyadi toota hy — saaf restart behtar hy
+  if (Date.now() - _errWindowStart > 5 * 60 * 1000) { _errCount = 1; _errWindowStart = Date.now(); }
+  else if (_errCount > 200) { console.error('[FATAL] error storm — restart'); process.exit(1); }
+});
+process.on('unhandledRejection', (e) => {
+  console.error('[unhandled]', e && e.message ? e.message : e);
+});
+// memory leak guard: agar heap 900MB se upar jaye to restart (Railway limit se pehle)
+setInterval(() => {
+  try {
+    const mb = process.memoryUsage().heapUsed / 1024 / 1024;
+    if (mb > 900) { console.error(`[FATAL] heap ${Math.round(mb)}MB — restart`); process.exit(1); }
+  } catch {}
+}, 5 * 60 * 1000).unref();
 
 // ---------- health endpoint (Koyeb/Render ko chahiye) ----------
 const app = express();
@@ -801,21 +854,39 @@ httpServer.on('error', (e) => {
     // Masla: session "zinda" dikhta hy magar socket silently mar chuka hota hy
     // (network flap, WhatsApp side disconnect). Pehle aisa session hamesha ke liye
     // atka reh jata tha — user ko lagta bot off ho gaya, halanki process chal raha tha.
-    // Hal: har 5 min check karo — jo session 10 min se connected nahi, usko zabardasti
+    // Hal: har 60s check karo — jo session 3 min se connected nahi, usko zabardasti
     // restart karo. Is se bot khud ko theek kar leta hy, bina kisi ko chhune.
+    // (Pehle 5 min check / 10 min threshold tha — bot 10 min tak dead reh sakta tha.)
     setInterval(() => {
       const now = Date.now();
       for (const [sessionId, entry] of sessions) {
         if (!entry.user) continue;              // already reconnecting — upar handle ho raha hy
         const last = entry.__lastSeen || entry.__connectedAt || now;
-        if (now - last > 10 * 60 * 1000) {
-          console.log(`[SAQI-MD] [${sessionId}] watchdog: 10 min se silent — restart`);
+        if (now - last > 3 * 60 * 1000) {
+          console.log(`[SAQI-MD] [${sessionId}] watchdog: 3 min se silent — restart`);
           sessions.delete(sessionId);
           try { entry.sock?.end(); } catch {}
           startSession(sessionId).catch(() => {});
         }
       }
-    }, 5 * 60 * 1000).unref();
+    }, 60 * 1000).unref();
+
+    // ---------- SESSION GUARDIAN (2-month) ----------
+    // Watchdog sirf un sessions ko dekhta hy jo `sessions` map me hyn. Agar koi session
+    // map se hi nikal jaye (loggedOut ke ilawa kisi wajah se), to Mongo me session mojood
+    // hote hue bhi bot dead reh jata hy. Ye guardian har 60s Mongo aur memory compare karta
+    // hy aur kisi bhi missing session ko wapas utha leta hy — bot khud ko heal karta hy.
+    setInterval(async () => {
+      try {
+        const ids = await listSessionIds(config.MONGODB_URI, config.SESSION_PREFIX);
+        for (const id of ids) {
+          if (sessions.has(id)) continue;
+          if (sessions.size >= config.MAX_SESSIONS) break;
+          console.log(`[SAQI-MD] guardian: ${id} memory me nahi tha — wapas utha rahe hain`);
+          startSession(id).catch(() => {});
+        }
+      } catch (e) { /* agla cycle dekhega */ }
+    }, 60 * 1000).unref();
   } else {
     console.log(`[SAQI-MD] single-session file mode (MONGODB_URI nahi diya gaya)`);
     await startSession(config.SESSION_ID);
