@@ -1,11 +1,8 @@
 node_modules/
+*.log
+.env
+.last_deploy
 session/
 sessions/
-.env
-*.log
-saqi.pid
-saqi.log
-guard.sh
-.vercel
-.env*
-guard.sh.bak-*
+auth_info*/
+_*.js

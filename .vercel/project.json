@@ -1,0 +1,16 @@
+{
+  "projectId": "prj_bW48gxo1OyXE0wArroPtNLYmjZqf",
+  "orgId": "team_1TGt8vnyHfYslxrk8XuTr8Wd",
+  "projectName": "saqi-md",
+  "settings": {
+    "createdAt": 1791023623694,
+    "framework": "express",
+    "devCommand": null,
+    "installCommand": null,
+    "buildCommand": null,
+    "outputDirectory": null,
+    "rootDirectory": null,
+    "directoryListing": false,
+    "nodeVersion": "24.x"
+  }
+}
