@@ -293,6 +293,24 @@ async function startSession(sessionId) {
           sessions.delete(sessionId);
           try { entry.sock.end(); } catch {}
           console.log(`[SAQI-MD] [${sessionId}] logged out — session deleted`);
+        } else if (code === 440 || code === DisconnectReason.connectionReplaced) {
+          // ---------- 440 = CONNECTION REPLACED (sab se bara speed killer) ----------
+          // Ye tab hota hy jab WAHI session do jagah chal rahi ho (jaise Railway + purana
+          // host, ya do replicas). WhatsApp ek ko rakhta hy aur doosre ko kick karta hy —
+          // bot "connected" aur "closed" ke beech loop karta rehta hy, aur jab user command
+          // bhejta hy to us waqt bot disconnected hota hy → WhatsApp timeout = "3 second lag".
+          // Hal: pehle isi session ke purane socket ko zabardasti band karo (duplicate khatam),
+          // phir THORI dair baad reconnect karo taake WhatsApp ki taraf se settle ho jaye.
+          console.log(`[SAQI-MD] [${sessionId}] 440 conflict — duplicate socket band kar ke dobara jur rahe hain`);
+          try { entry.sock?.end(); } catch {}
+          entry.reconnects++;
+          // 440 par backoff lamba rakho — foran reconnect karne se conflict dobara banta hy
+          const delay = Math.min(5000 + entry.reconnects * 2000, 30000);
+          setTimeout(() => {
+            if (sessions.get(sessionId) !== entry || entry.dead) return;
+            sessions.delete(sessionId);
+            startSession(sessionId).catch((e) => console.error(`[SAQI-MD] [${sessionId}] 440 restart fail:`, e.message));
+          }, delay);
         } else {
           // LONG-LIFE RECONNECT (2-month ka hal):
           // Pehle yahan MAX_RECONNECTS ke baad session hamesha ke liye chhor diya
