@@ -854,6 +854,20 @@ app.get('/health', (req, res) => {
 // Pairing portal ab mount — baqi sab routes (/, /pair, /api/*) server.js ke andar hain.
 app.use(require('./server'));
 
+// ---------- DIAGNOSTIC: Mongo me kitne session docs hain (440 duplicate dhoondhne ke liye) ----------
+// Ye batata hy ke kya ek hi number ke liye ek se zyada session doc mojood hain — jo 440
+// (connectionReplaced) ki sab se aam wajah hy. Token se protected.
+app.get('/diag/sessions', async (req, res) => {
+  const key = String(req.query.key || '');
+  if (!config.MONGODB_URI || key !== String(config.SESSION_PREFIX)) return res.status(403).json({ ok: false });
+  try {
+    const SessionModel = require('mongoose').connection.models.Session || null;
+    const ids = await listSessionIds(config.MONGODB_URI, config.SESSION_PREFIX);
+    const all = SessionModel ? (await SessionModel.find({ _id: /creds$/ }).lean()).map(d => d._id) : [];
+    res.json({ ok: true, prefix: config.SESSION_PREFIX, sessionIds: ids, credsDocs: all, inMemory: [...sessions.keys()] });
+  } catch (e) { res.json({ ok: false, err: e.message }); }
+});
+
 // ---------- live test hook (LOCALHOST ONLY) — session ke apne chat me command bhej kar asli jawab pakarta hy ----------
 app.get('/livetest', async (req, res) => {
   const ip = req.socket.remoteAddress || '';
