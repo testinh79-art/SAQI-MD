@@ -219,6 +219,12 @@ async function getApp() {
         const PR = await queueDB();
         const doc = await PR.findById(req.params.id).lean().catch(() => null);
         if (!doc) return res.json({ ok: false, status: 'expired' });
+        // BUG FIX: 'ready' par atka hua doc jo 6 min se purana hy = pairing waqt par nahi hui,
+        // session safai ho chuki hy. Use 'expired' report karo taake user naya code le sake.
+        const age = Date.now() - new Date(doc.createdAt || 0).getTime();
+        if (doc.status === 'ready' && age > 6 * 60 * 1000) {
+          return res.json({ ok: true, status: 'expired', code: doc.code || null, linked: false });
+        }
         return res.json({ ok: true, status: doc.status, code: doc.code || null, linked: doc.status === 'linked' });
       }
     } catch (e) {

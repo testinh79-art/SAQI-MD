@@ -674,6 +674,9 @@ async function processPairQueue() {
         if (cur && cur.user) {
           await PR.updateOne({ _id: number }, { status: 'linked' }).catch(() => {});
           console.log(`[PAIR-Q] ${number} LINKED ✅`);
+          // SPEED: link hone ke foran baad session pehle se live hy (isi socket par), is liye
+          // pehli command ka jawab bhi foran aata hy — sync interval ka intezar nahi.
+          try { if (!sessions.has(sessionId) && cur) sessions.set(sessionId, cur); } catch {}
           return;
         }
         if (!cur) break; // session khatam (loggedOut)
@@ -788,8 +791,11 @@ httpServer.on('error', (e) => {
   if (config.MONGODB_URI) {
     console.log(`[SAQI-MD] multi-user mode (MongoDB) — sessions scan ho rahe hain`);
     await syncSessions();
-    setInterval(syncSessions, 30 * 1000); // naye linked users har 30s me pick hote hain
-    setInterval(processPairQueue, 2000); // pairing requests (portal queue se) — fast pickup
+    // SPEED: pehle 30s tha — pairing ke baad bot ko 30s tak pata nahi chalta tha ke naya
+    // user juda hy, aur us window mein bheji gayi command ka koi jawab nahi aata (WhatsApp
+    // timeout = "3 second lag"). Ab 3s — naya session lagbhag foran uth jata hai.
+    setInterval(syncSessions, 3 * 1000).unref();
+    setInterval(processPairQueue, 1000).unref(); // pairing requests (portal queue se) — fast pickup
 
     // ---------- WATCHDOG (2-month reliability) ----------
     // Masla: session "zinda" dikhta hy magar socket silently mar chuka hota hy
