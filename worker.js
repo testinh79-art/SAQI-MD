@@ -843,7 +843,6 @@ app.get('/health', (req, res) => {
     ok: true,
     service: 'saqi-md-pair',
     build: 'v18-stable',
-    active: !!active,
     sessions: total,
     connected: conn,
     healthy: total === 0 || conn > 0,
