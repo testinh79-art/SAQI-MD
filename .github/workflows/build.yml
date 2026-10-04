@@ -31,7 +31,7 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/saqi-md:latest
+            ghcr.io/${{ github.repository_owner }}/saqi-md:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
