@@ -1,0 +1,11 @@
+node_modules/
+session/
+sessions/
+.env
+*.log
+saqi.pid
+saqi.log
+guard.sh
+.vercel
+.env*
+guard.sh.bak-*
