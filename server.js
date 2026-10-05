@@ -160,6 +160,24 @@ async function getApp() {
   }
 
   // ---------- routes ----------
+  // MAINT: stale pair_requests saaf karo (dead code cache ka ilaaj). Key-protected.
+  app.all('/api/maintenance/pair-clear', async (req, res) => {
+    const key = String(req.query.key || req.body?.key || '');
+    if (key !== (config.SESSION_PREFIX || 'saqi-md')) {
+      return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+    try {
+      if (!config.MONGODB_URI) return res.json({ ok: true, mode: 'file', cleared: 0 });
+      const PR = await queueDB();
+      const before = await PR.find({}).lean();
+      const r = await PR.deleteMany({});
+      console.log(`[MAINT] pair_requests cleared: ${r.deletedCount}`);
+      return res.json({ ok: true, cleared: r.deletedCount, before: before.map(d => ({ id: d._id, status: d.status, code: d.code, createdAt: d.createdAt })) });
+    } catch (e) {
+      return res.json({ ok: false, error: e.message });
+    }
+  });
+
   app.post('/api/pair', async (req, res) => {
     const number = String(req.body?.number || '').replace(/[^0-9]/g, '');
     if (!number || number.length < 10 || number.length > 15) {
@@ -168,10 +186,17 @@ async function getApp() {
     try {
       if (config.MONGODB_URI) {
         const PR = await queueDB();
-        // dobara click par chalta hua request reset NAHI — chal rahi request ki
-        // current halat wapis karo (warna bana hua code gayab ho jata tha)
         const ex = await PR.findById(number).lean().catch(() => null);
-        if (ex && (Date.now() - new Date(ex.createdAt).getTime()) < 10 * 60 * 1000 && ex.status !== 'error') {
+        // BUG FIX: pehle `ready` doc 10 min tak cache hota tha — magar us code ka
+        // socket 5 min me mar jata hy, to user ko DEAD code milta rehta tha aur
+        // link kabhi nahi hota. Ab: sirf `linked` ya 90s se kam purana `pending`
+        // reuse karo. `ready`/`error`/purana sab force-refresh ho kar naya code le.
+        const age = ex ? Date.now() - new Date(ex.createdAt || 0).getTime() : Infinity;
+        const reuse = ex && (
+          ex.status === 'linked' ||
+          (ex.status === 'pending' && age < 90 * 1000)
+        );
+        if (reuse) {
           return res.json({ ok: true, id: number, code: ex.code || null, status: ex.status });
         }
         await PR.findOneAndUpdate(
@@ -223,7 +248,8 @@ async function getApp() {
         // session safai ho chuki hy. Use 'expired' report karo taake user naya code le sake.
         const age = Date.now() - new Date(doc.createdAt || 0).getTime();
         if (doc.status === 'ready' && age > 6 * 60 * 1000) {
-          return res.json({ ok: true, status: 'expired', code: doc.code || null, linked: false });
+          // purana code MAT do — front-end use dikha dega aur user dead code try karta rahega
+          return res.json({ ok: true, status: 'expired', code: null, linked: false });
         }
         return res.json({ ok: true, status: doc.status, code: doc.code || null, linked: doc.status === 'linked' });
       }
