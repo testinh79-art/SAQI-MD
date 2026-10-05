@@ -876,6 +876,7 @@ app.get('/diag/sessions', async (req, res) => {
     // nahi hota (asli model 'baileys_sessions' hy, lib/mongoSession.js) — is liye ye
     // endpoint hamesha credsDocs:[] dikhata tha aur lagta tha creds gayab hain.
     const conn = require('mongoose').connection;
+    const ids = await listSessionIds(config.MONGODB_URI, config.SESSION_PREFIX);
     const all = conn.readyState === 1
       ? (await conn.db.collection('baileys_sessions').find({ _id: /creds$/ }).project({ _id: 1 }).toArray()).map(d => d._id)
       : [];
