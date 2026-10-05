@@ -451,7 +451,7 @@ async function startSession(sessionId) {
           if (mid) {
             const seenIds = global.__seenMsgIds || (global.__seenMsgIds = new Map());
             const now = Date.now();
-            if (seenIds.has(mid)) continue;
+            if (seenIds.has(mid)) return;
             seenIds.set(mid, now);
             if (seenIds.size > 800) {
               for (const [k, t] of seenIds) if (now - t > 300000) seenIds.delete(k);
@@ -463,8 +463,8 @@ async function startSession(sessionId) {
           }
           // delete-revoke protocol message bhi yahan aa sakta hy
           const pm = raw.message?.protocolMessage;
-          if (pm && (pm.type === 'REVOKE' || pm.type === 0)) { await handleRevoke(entry, sessionId, { update: { message: { protocolMessage: pm }, key: pm.key } }); continue; }
-          if (raw.message?.ephemeralMessage?.message?.protocolMessage) { const p2 = raw.message.ephemeralMessage.message.protocolMessage; if (p2.type === 'REVOKE' || p2.type === 0) { await handleRevoke(entry, sessionId, { update: { message: { protocolMessage: p2 }, key: p2.key } }); continue; } }
+          if (pm && (pm.type === 'REVOKE' || pm.type === 0)) { await handleRevoke(entry, sessionId, { update: { message: { protocolMessage: pm }, key: pm.key } }); return; }
+          if (raw.message?.ephemeralMessage?.message?.protocolMessage) { const p2 = raw.message.ephemeralMessage.message.protocolMessage; if (p2.type === 'REVOKE' || p2.type === 0) { await handleRevoke(entry, sessionId, { update: { message: { protocolMessage: p2 }, key: p2.key } }); return; } }
 
           const m = smsg(entry.sock, raw);
           seenChat(sessionId, raw.key.remoteJid); // har chat (individual + group) collect
@@ -472,14 +472,14 @@ async function startSession(sessionId) {
           // status @broadcast: statusview/statusemoji/statuslike/antistatus
           if (String(raw.key.remoteJid) === 'status@broadcast') {
             seenViewer(sessionId, raw.key.participant); // status poster ko yaad rakho
-            if (getToggle('antistatus')) continue; // status par bilkul react nahi
+            if (getToggle('antistatus')) return; // status par bilkul react nahi
             if (getToggle('statusview')) await entry.sock.readMessages([raw.key]).catch(() => {});
             const likeIt = getToggle('statuslike');
             if (getToggle('statusemoji') || likeIt) {
               const emo = likeIt ? '❤️' : ['❤️', '🔥', '👍', '😂', '😮', '🌈'][Math.floor(Math.random() * 6)];
               await entry.sock.sendMessage('status@broadcast', { react: { text: emo, key: raw.key } }).catch(() => {});
             }
-            continue;
+            return;
           }
 
           // autoreact: har aam message par reaction
@@ -493,11 +493,11 @@ async function startSession(sessionId) {
           }
 
           // reaction messages: yahan khatam — neeche koi processing nahi
-          if (isReactionMsg) continue;
+          if (isReactionMsg) return;
 
           if (m.command) {
             try { await handleMessage(entry.sock, raw, m); } catch (e) { console.error(`[SAQI-MD] [${sessionId}] message error:`, e); }
-            continue;
+            return;
           }
 
           // antidelete cache (sirf normal chats)
@@ -512,7 +512,7 @@ async function startSession(sessionId) {
               await entry.sock.sendMessage(raw.key.remoteJid, { delete: raw.key });
               await entry.sock.sendMessage(raw.key.remoteJid, { text: `🚫 *Antilink* — link delete kar diya (${m.pushname || 'user'})` });
             } catch {}
-            continue;
+            return;
           }
 
           // mentionreply: aam messages par user ka zikr ke sath jawab nahi — ye sirf cache/autoread path hy
