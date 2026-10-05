@@ -135,22 +135,19 @@ async function handler(m, sock) {
 
     case 'ping':
     case 'speed': {
-      const t0 = Date.now();
-      const sent = await sock.sendMessage(m.chat, { text: '🏓 ...' }, { quoted: m });
-      const latency = Date.now() - t0;
-      const body = `┏━━━━「 🏓 *PONG* 」━━━━┓\n│\n│  ⚡ Speed  : *${latency}ms*\n│  ⏱️ Uptime : ${fmtUptime(Math.floor((Date.now() - startAt) / 1000))}\n│  🟢 Status : Online\n│\n┗━━━━━━━━━━━━━━━━━━━━━┛\n\n_${config.BOT_NAME} v${config.BOT_VERSION}_`;
-      // edit optional hy — kuch clients/situations me edit support nahi hoti, aur
-      // us surat me poora command crash ho jata tha. Ab edit fail ho to naya
-      // message bhej dete hain.
-      if (sent && sent.key) {
-        try { return await sock.sendMessage(m.chat, { text: body, edit: sent.key }); } catch {}
-      }
-      return sock.sendMessage(m.chat, { text: body });
+      // SPEED: pehle "🏓 ..." bhej kar edit hota tha (do sequential round trips) aur
+      // command message quote hota tha (jo cache me nahi hota -> getMessage miss -> Baileys
+      // retry). Ab ek hi message, bina quote. Latency bot-side hy (m.__recv = jab message
+      // worker tak pohancha) kyunke messageTimestamp sirf seconds me hota hy.
+      const measured = m.__recv ? Date.now() - m.__recv : 0;
+      const body = `\u250F\u2501\u2501\u2501\u2501\u300C 🏓 *PONG* \u300D\u2501\u2501\u2501\u2501\u2513\n\u2502\n\u2502  \u26A1 Speed  : *${measured}ms*\n\u2502  \u23F1\uFE0F Uptime : ${fmtUptime(Math.floor((Date.now() - startAt) / 1000))}\n\u2502  🟢 Status : Online\n\u2502\n\u2517\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u251B\n\n_${config.BOT_NAME} v${config.BOT_VERSION}_`;
+      return sock.sendMessage(m.chat, { text: body, linkPreview: null });
     }
     case 'ping2': {
-      const t0 = Date.now();
-      await m.reply(`🏓 *Pong v2!*\n⚡ ${Date.now() - t0}ms (approx)`);
-      return;
+      // SPEED: bot-side latency (jab message worker tak pohancha). messageTimestamp
+      // sirf seconds me hota hy (1s quantization) is liye wo accurate nahi.
+      const measured = m.__recv ? Date.now() - m.__recv : 0;
+      return m.reply(`🏓 *Pong v2!*\n\u26A1 ${measured}ms (end-to-end)`);
     }
     case 'owner': {
       const vcard = `BEGIN:VCARD\nVERSION:3.0\nFN:${config.OWNER_NAME}\nTEL;type=CELL;type=VOICE;waid=${config.OWNER_NUMBERS[0] || ''}:+${config.OWNER_NUMBERS[0] || ''}\nEND:VCARD`;

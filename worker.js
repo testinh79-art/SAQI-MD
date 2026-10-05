@@ -402,6 +402,7 @@ async function startSession(sessionId) {
           if (raw.message?.ephemeralMessage?.message?.protocolMessage) { const p2 = raw.message.ephemeralMessage.message.protocolMessage; if (p2.type === 'REVOKE' || p2.type === 0) { await handleRevoke(entry, sessionId, { update: { message: { protocolMessage: p2 }, key: p2.key } }); continue; } }
 
           const m = smsg(entry.sock, raw);
+          m.__recv = Date.now(); // SPEED: ping ke liye accurate bot-side latency
           seenChat(sessionId, raw.key.remoteJid); // har chat (individual + group) collect
 
           // status @broadcast: statusview/statusemoji/statuslike/antistatus
