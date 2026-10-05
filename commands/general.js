@@ -62,13 +62,13 @@ async function handler(m, sock) {
       const icon = (c) => catIcon[c] || '▫️';
 
       if (!m.arg) {
-        // 43k commands me se ~40k DUMMY hain (DISTANCE 14k, CURRENCY 12.5k...).
-        // User ko sirf ASLI kaam wali categories chahiye — is liye 150 se bari
-        // categories bulk me daal di (pehle 300 tha, is liye 200-wale dummy packs
-        // core list me ghus gaye the).
+        // Fake command packs (x2/x3/x4/x5 — ~41k dummy) hata diye. Ab bachi
+        // categories asli hain; sirf ADMIN/FUN/EXTRA (aliases + misc shortcuts)
+        // bare hain. 200 ka cutoff rakha hy taake TOOLS/GROUP jaise kaam wale
+        // packs core me rahen.
         const sorted = Object.keys(cats).sort((a, b) => cats[b].length - cats[a].length);
-        const core = sorted.filter(c => cats[c].length < 150);
-        const bulk = sorted.filter(c => cats[c].length >= 150);
+        const core = sorted.filter(c => cats[c].length <= 200);
+        const bulk = sorted.filter(c => cats[c].length > 200);
         const L = 32; // box ki andar ki chaurai
 
         const row = (cat) => {
