@@ -453,7 +453,7 @@ async function startSession(sessionId) {
         if (u.action === 'add' && getToggle('welcome')) {
           for (const p of u.participants || []) {
             const num = p.split('@')[0];
-            const txt = (settingsMod.getText('welcome') || '👋 Welcome *@user* — *{group}* me khush aamdeed! 🎉')
+            const txt = (settingsMod.getText('welcome') || `┏━━━━「 🎉 *WELCOME* 」━━━━┓\n│\n│  ✦ Assalam-o-Alaikum\n│  ✦ *@user*\n│\n│  📍 {group} me khush aamdeed!\n│  🌟 Umeed hy aap ka waqt acha guzrega\n│\n┗━━━━━━━━━━━━━━━━━━━━━┛\n\n_${config.BOT_NAME}_`)
               .replaceAll('@user', num).replaceAll('{group}', 'Group');
             await entry.sock.sendMessage(u.id, { text: txt, mentions: [p] }).catch(() => {});
           }
@@ -461,7 +461,7 @@ async function startSession(sessionId) {
         if ((u.action === 'remove' || u.action === 'leave') && getToggle('goodbye')) {
           for (const p of u.participants || []) {
             const num = p.split('@')[0];
-            const txt = (settingsMod.getText('goodbye') || '👋 *@user* ne group chhora. Allah Hafiz!')
+            const txt = (settingsMod.getText('goodbye') || `┏━━━━「 👋 *GOODBYE* 」━━━━┓\n│\n│  ✦ *@user* ne group chhora\n│\n│  🤲 Allah Hafiz — dobara aana!\n│\n┗━━━━━━━━━━━━━━━━━━━━━┛\n\n_${config.BOT_NAME}_`)
               .replaceAll('@user', num);
             await entry.sock.sendMessage(u.id, { text: txt, mentions: [p] }).catch(() => {});
           }

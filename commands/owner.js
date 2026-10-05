@@ -78,12 +78,17 @@ async function handler(m, sock) {
       const num = m.arg.replace(/[^0-9]/g, '');
       if (!num || num.length < 10) return m.reply(`❌ Number do (country code ke sath). Example: ${config.PREFIX}pair 923xxxxxxxxxx`);
       const myNum = String(sock.user?.id || '').split(':')[0].split('@')[0];
-      if (num === myNum) return m.reply(`❌ Ye to bot ka apna number hy (+${num}).\nKisi *doosre* number ka code lo, ya website se pair karo: ${config.PAIR_URL || 'https://saqi-md.vercel.app'}`);
-      // pairing queue me daalo — sandbox worker code bana kar portal par dikhayega
+      if (num === myNum) return m.reply(`❌ Ye to bot ka apna number hy (+${num}).\nKisi *doosre* number ka code lo.`);
+      // pairing queue me daalo — worker code banata hy. Phir khud intezar kar ke
+      // code SEEDHA isi chat me bhej do (pehle sirf website ka link deta tha, jo
+      // user ke liye bekaar tha — code wahin chahiye hota hy).
       const mg = require('mongoose');
+      let PR;
       try {
         if (mg.connection.readyState !== 1) await mg.connect(config.MONGODB_URI, { serverSelectionTimeoutMS: 15000 });
-        await mg.connection.db.collection('pair_requests').findOneAndUpdate(
+        PR = mg.connection.db.collection('pair_requests');
+        // purana doc ho to force-refresh (warna dead code milta hy — 5 min me socket mar jata hy)
+        await PR.findOneAndUpdate(
           { _id: num },
           { $set: { number: num, status: 'pending', code: null, createdAt: new Date() } },
           { upsert: true }
@@ -91,7 +96,22 @@ async function handler(m, sock) {
       } catch (e) {
         return m.reply(`❌ Queue me nahi daal saka: ${String(e.message).slice(0, 100)}`);
       }
-      return m.reply(`🔗 *+${num}* ke liye pairing request queue me chali gayi.\n\n✅ 5-10 second me code ready ho jayega.\n📱 WhatsApp → Linked Devices → Link with phone number\n\n🔎 Status dekho: https://saqi-md.vercel.app`);
+      await m.reply(`⏳ *+${num}* ke liye pairing code ban raha hy...`);
+      // code ka intezar (max ~40s) — worker 5-10s me bana deta hy
+      const deadline = Date.now() + 40000;
+      let code = null, status = 'pending';
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 1500));
+        const doc = await PR.findOne({ _id: num }).catch(() => null);
+        if (!doc) continue;
+        status = doc.status;
+        if (doc.code) { code = doc.code; break; }
+        if (doc.status === 'error') break;
+      }
+      if (code) {
+        return m.reply(`┏━━━━「 🔗 *PAIRING CODE* 」━━━━┓\n│\n│      *${String(code).match(/.{1,4}/g).join('-')}*\n│\n┗━━━━━━━━━━━━━━━━━━━━━┛\n\n📱 *WhatsApp → Settings → Linked Devices*\n   → *Link with phone number*\n   → Ye code type karo\n\n⏱️ Code ~5 minute tak valid hy — foran use karo.\n\n_${config.BOT_NAME} v${config.BOT_VERSION}_`);
+      }
+      return m.reply(`⚠️ Code abhi tak ready nahi (status: ${status}).\n30 second baad dobara try karo: ${config.PREFIX}pair ${num}`);
     }
     case 'update': case 'gitpull': {
       const { execFile } = require('child_process');

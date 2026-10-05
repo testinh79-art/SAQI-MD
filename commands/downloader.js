@@ -6,6 +6,24 @@ const { ytSearch, ytDownload } = require('../lib/functions');
 
 const GENERIC = ['twitter','gdrive','capcut','fb','igdl','igdl2','igdl3','igmp3','mediafire','megadl','download','ytpost'];
 
+// WhatsApp ki hard limit ~100MB hy. Is se bara ho to `document` ke tor par bhejo —
+// warna send fail ho kar user ko khaali link milta hy.
+const WA_LIMIT = 95 * 1024 * 1024;
+function safeName(s, ext) {
+  return `${String(s || 'media').replace(/[^\w\s.-]/g, '').trim().slice(0, 60) || 'media'}.${ext}`;
+}
+async function sendMedia(m, sock, buf, { audio, caption, name, mimetype }) {
+  const big = buf.length > WA_LIMIT;
+  if (audio) {
+    return big
+      ? sock.sendMessage(m.chat, { document: buf, mimetype: mimetype || 'audio/mpeg', fileName: name }, { quoted: m })
+      : sock.sendMessage(m.chat, { audio: buf, mimetype: mimetype || 'audio/mpeg' }, { quoted: m });
+  }
+  return big
+    ? sock.sendMessage(m.chat, { document: buf, mimetype: mimetype || 'video/mp4', fileName: name }, { quoted: m })
+    : sock.sendMessage(m.chat, { video: buf, caption }, { quoted: m });
+}
+
 async function tiktokDL(m, sock) {
   if (!m.arg) return m.reply('❌ TikTok link do.');
   // cobalt pehle (khud-hosted, reliable), tikwm fallback.
@@ -27,13 +45,15 @@ async function tiktokDL(m, sock) {
       });
       const j = await r.json().catch(() => null);
       if (j && (j.status === 'tunnel' || j.status === 'redirect' || j.status === 'stream') && j.url) {
-        const res = await fetch(j.url, { redirect: 'follow', signal: AbortSignal.timeout(90000) });
+        const res = await fetch(j.url, { redirect: 'follow', signal: AbortSignal.timeout(120000) });
         if (res.ok) {
           const buf = Buffer.from(await res.arrayBuffer());
           if (buf.length > 10000) {
-            return wantAudio
-              ? sock.sendMessage(m.chat, { audio: buf, mimetype: 'audio/mpeg' }, { quoted: m })
-              : sock.sendMessage(m.chat, { video: buf, caption: `⬇️ *TikTok* — ${config.BOT_NAME}` }, { quoted: m });
+            return sendMedia(m, sock, buf, {
+              audio: wantAudio,
+              caption: `⬇️ *TikTok* — ${config.BOT_NAME}`,
+              name: safeName('tiktok', wantAudio ? 'mp3' : 'mp4'),
+            });
           }
         }
       }
@@ -67,14 +87,16 @@ async function genericDL(m, sock) {
       });
       const j = await r.json().catch(() => null);
       if (j && (j.status === 'tunnel' || j.status === 'redirect' || j.status === 'stream') && j.url) {
-        const mediaRes = await fetch(j.url, { redirect: 'follow', signal: AbortSignal.timeout(90000) });
+        const mediaRes = await fetch(j.url, { redirect: 'follow', signal: AbortSignal.timeout(120000) });
         if (mediaRes.ok) {
           const buf = Buffer.from(await mediaRes.arrayBuffer());
           if (buf.length > 10000) {
             const isAudio = /\.(mp3|m4a|opus)$/i.test(j.filename || '') || m.command === 'igmp3';
-            return isAudio
-              ? sock.sendMessage(m.chat, { audio: buf, mimetype: 'audio/mpeg' }, { quoted: m })
-              : sock.sendMessage(m.chat, { video: buf, caption: `⬇️ *Download* — ${config.BOT_NAME}` }, { quoted: m });
+            return sendMedia(m, sock, buf, {
+              audio: isAudio,
+              caption: `⬇️ *${m.command.toUpperCase()}* — ${config.BOT_NAME}`,
+              name: safeName(j.filename || m.command, isAudio ? 'mp3' : 'mp4'),
+            });
           }
         }
       }
@@ -100,22 +122,28 @@ async function ytDL(m, sock) {
     video = await ytSearch(m.arg);
     if (!video) return m.reply('❌ YouTube par nahi mila. Doosre lafz try karo.');
   }
-  m.reply(`⬇️ *${video.title}* download ho raha hy... (${asAudio ? 'MP3' : 'MP4'})`);
+  const wait = await m.reply(`⬇️ *${video.title}*\n_Download ho raha hy... (${asAudio ? 'MP3' : 'MP4'})_`);
+
+  // 1) cobalt se seedha file (best — YouTube block nahi karta)
   const dlUrl = await ytDownload(video.id, asAudio ? 'mp3' : 'mp4');
-  try {
-    if (dlUrl) {
-      const mediaRes = await fetch(dlUrl, { redirect: 'follow' });
+  if (dlUrl) {
+    try {
+      const mediaRes = await fetch(dlUrl, { redirect: 'follow', signal: AbortSignal.timeout(180000) });
       if (mediaRes.ok) {
         const buf = Buffer.from(await mediaRes.arrayBuffer());
         if (buf.length > 10000) {
-          return asAudio
-            ? sock.sendMessage(m.chat, { audio: buf, mimetype: 'audio/mpeg' }, { quoted: m })
-            : sock.sendMessage(m.chat, { video: buf, caption: `🎵 *${video.title}*\n_⬇️ SAQI-MD_` }, { quoted: m });
+          return sendMedia(m, sock, buf, {
+            audio: asAudio,
+            caption: `🎵 *${video.title}*\n_⬇️ ${config.BOT_NAME}_`,
+            name: safeName(video.title, asAudio ? 'mp3' : 'mp4'),
+          });
         }
       }
-    }
-  } catch (e) { console.error('[downloader]', e.message); }
-  return m.reply(`⚠️ Direct file nahi ban saki (converter down). Yahan dekho:\n\n▶️ ${video.url}`);
+    } catch (e) { console.error('[downloader] cobalt fetch:', e.message); }
+  }
+
+  // AAKHRI HAL: file nahi ban saki to saaf batao (link pe bharosa mat karo)
+  return m.reply(`⚠️ *File nahi ban saki.*\n\n${video.title}\n▶️ ${video.url}\n\n_Dobara try karo, ya chhoti video/song par test karo._`);
 }
 
 async function ttsCmd(m, sock) {

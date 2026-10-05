@@ -45,60 +45,88 @@ async function handler(m, sock) {
     case 'help': {
       const cats = collectCommands();
       const total = Object.values(cats).reduce((a, c) => a + c.length, 0);
-      if (!m.arg) {
-        // NAYA MENU (v6): saaf, emoji-free headers, asli commands upar.
-        // 43k commands ka poora list bhejna bekaar hy — user ko kaam ki cheez chahiye.
-        // Is liye: sirf wo categories dikhao jin me ASLI (dummy nahi) commands hain,
-        // aur unki ginti ke sath. Dummy packs (x3/x4/x5) ko alag se niche rakha hy.
-        const up = Math.floor((Date.now() - startAt) / 1000);
-        const sorted = Object.keys(cats).sort((a, b) => cats[b].length - cats[a].length);
+      const up = Math.floor((Date.now() - startAt) / 1000);
 
-        // chhoti categories (asli kaam wali) aur bari (bulk packs) ko alag karo
+      // ── PREMIUM MENU ────────────────────────────────────────────────────────
+      // Design usool: WhatsApp monospace font sirf ```blocks``` me milta hy, aur
+      // wahan emoji theek nahi dikhte. Is liye: header/box me sajawat, andar ki
+      // list plain. Emoji har line par nahi — sirf category ke sath (clean look).
+      // 43k commands poora bhejna bekaar hy — sirf asli kaam wali categories.
+      const catIcon = {
+        MAIN: '🏠', DOWNLOAD: '⬇️', AI: '🤖', OWNER: '👑', GROUP: '👥',
+        TOOLS: '🧰', SEARCH: '🔎', FUN: '🎮', ANIME: '🌸', SOUND: '🔊',
+        LOGO: '🎨', SETTING: '⚙️', SETTINGS: '⚙️', UTILITY: '📦',
+        OTHER: '📁', STUDY: '📚', TEXT: '✍️', GAMES: '🎯', PROD: '📋',
+        MISC: '🔧', OPS: '🛠️', BOT: '🤖',
+      };
+      const icon = (c) => catIcon[c] || '▫️';
+
+      if (!m.arg) {
+        const sorted = Object.keys(cats).sort((a, b) => cats[b].length - cats[a].length);
         const core = sorted.filter(c => cats[c].length <= 300);
         const bulk = sorted.filter(c => cats[c].length > 300);
+        const L = 32; // box ki andar ki chaurai
 
-        const line = (cat) => `│ ${cat.padEnd(14)} ${String(cats[cat].length).padStart(6)}`;
+        const row = (cat) => {
+          const n = String(cats[cat].length);
+          const name = cat.length > 17 ? cat.slice(0, 17) : cat;
+          const gap = Math.max(1, L - 4 - name.length - n.length);
+          return `│ ${icon(cat)} ${name}${' '.repeat(gap)}${n} │`;
+        };
+        const bar = '─'.repeat(L);
+        const title = `⚡ ${config.BOT_NAME}`;
+        const pad = Math.max(0, Math.floor((L - title.length) / 2));
 
         let txt = '';
-        txt += `╭──────────────────────────────╮\n`;
-        txt += `│   ⚡ ${config.BOT_NAME}${' '.repeat(Math.max(0, 20 - config.BOT_NAME.length))}│\n`;
-        txt += `╰──────────────────────────────╯\n\n`;
-        txt += `  Owner     : ${config.OWNER_NAME}\n`;
-        txt += `  Prefix    : ${config.PREFIX}\n`;
-        txt += `  Commands  : ${total.toLocaleString('en-US')}\n`;
-        txt += `  Uptime    : ${fmtUptime(up)}\n\n`;
-        txt += `━━━ *MAIN CATEGORIES* ━━━\n`;
-        txt += `\`\`\`\n${core.map(line).join('\n')}\n\`\`\`\n`;
+        txt += `┏${bar}┓\n`;
+        txt += `┃${' '.repeat(pad)}${title}${' '.repeat(Math.max(0, L - pad - title.length))}┃\n`;
+        txt += `┗${bar}┛\n`;
+        txt += `  ┌───────────── ✦ ─────────────┐\n`;
+        txt += `   👑 Owner    : ${config.OWNER_NAME}\n`;
+        txt += `   ⚙️ Prefix   : ${config.PREFIX}\n`;
+        txt += `   📦 Commands : ${total.toLocaleString('en-US')}\n`;
+        txt += `   ⏱️ Uptime   : ${fmtUptime(up)}\n`;
+        txt += `   🟢 Status   : Online\n`;
+        txt += `  └───────────── ✦ ─────────────┘\n\n`;
+        txt += `┏━━━━━「 *MENU* 」━━━━━┓\n`;
+        txt += core.map(row).join('\n') + '\n';
+        txt += `┗━━━━━━━━━━━━━━━━━━━━━━━━┛\n`;
         if (bulk.length) {
-          txt += `━━━ *BULK PACKS* ━━━\n`;
-          txt += `\`\`\`\n${bulk.map(line).join('\n')}\n\`\`\`\n`;
+          txt += `\n┏━━━━「 *BULK PACKS* 」━━━━┓\n`;
+          txt += bulk.map(row).join('\n') + '\n';
+          txt += `┗━━━━━━━━━━━━━━━━━━━━━━━━┛\n`;
         }
-        txt += `\n*Kaise use karein*\n`;
-        txt += `  ${config.PREFIX}menu <category>  — us category ki commands\n`;
-        txt += `  ${config.PREFIX}details <naam>   — kisi bhi command ki detail\n`;
-        txt += `  ${config.PREFIX}menu all        — sab categories\n\n`;
-        txt += `_${config.BOT_NAME} v${config.BOT_VERSION} — ${config.OWNER_NAME}_`;
+        txt += `\n┏━━━━━「 *HOW TO USE* 」━━━━━┓\n`;
+        txt += `│ ${config.PREFIX}menu <category>          │\n`;
+        txt += `│ ${config.PREFIX}menu all                 │\n`;
+        txt += `│ ${config.PREFIX}details <command>        │\n`;
+        txt += `┗━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n`;
+        txt += `_${config.BOT_NAME} v${config.BOT_VERSION} • ${config.OWNER_NAME}_`;
         return m.reply(txt);
       }
 
-      // .menu all — sab categories ek sath (chhota, sirf ginti)
+      // .menu all — sab categories, compact
       if (m.arg.trim().toLowerCase() === 'all') {
         const all = Object.keys(cats).sort()
-          .map(c => `│ ${c.padEnd(16)} ${String(cats[c].length).padStart(6)}`)
-          .join('\n');
-        return m.reply(`━━━ *SAB CATEGORIES* ━━━\n\`\`\`\n${all}\n\`\`\``);
+          .map(c => {
+            const n = String(cats[c].length);
+            const name = c.length > 16 ? c.slice(0, 16) : c;
+            return `│ ${icon(c)} ${name}${' '.repeat(Math.max(1, 20 - name.length - n.length))}${n} │`;
+          }).join('\n');
+        return m.reply(`┏━━━━「 *SAB CATEGORIES* 」━━━━┓\n${all}\n┗━━━━━━━━━━━━━━━━━━━━━━━┛`);
       }
+
       // .menu <category> [page]
       const parts = m.arg.trim().split(/\s+/);
       const want = parts[0].toUpperCase();
       const cat = Object.keys(cats).find(c => c === want || c.replace(/\s+/g, '') === want);
       if (!cat) {
         const matches = Object.keys(cats).filter(c => c.includes(want));
-        return m.reply(`❌ Category "${parts[0]}" nahi mili.${matches.length ? `\nKya matlab tha: ${matches.join(', ')}` : ''}\nSab dekhne ke liye: ${config.PREFIX}menu`);
+        return m.reply(`❌ Category "${parts[0]}" nahi mili.${matches.length ? `\n\nKya matlab tha:\n${matches.map(c => `▸ ${config.PREFIX}menu ${c.toLowerCase()}`).join('\n')}` : ''}\n\nSab dekhne ke liye: ${config.PREFIX}menu`);
       }
       const body = catBody(cat, parseInt(parts[1]) || 1);
       const count = cats[cat].length;
-      return m.reply(`╭─〔 *${cat}* 〕─ ${count} commands ─⊷\n${body}\n> ${config.BOT_NAME}`);
+      return m.reply(`┏━━━━「 ${icon(cat)} *${cat}* 」━━━━┓\n│ 📦 ${count} commands\n┗━━━━━━━━━━━━━━━━━━━━━┛\n\n${body}\n\n_${config.BOT_NAME} v${config.BOT_VERSION}_`);
     }
 
     case 'ping':
@@ -106,7 +134,7 @@ async function handler(m, sock) {
       const t0 = Date.now();
       const sent = await sock.sendMessage(m.chat, { text: '🏓 ...' }, { quoted: m });
       const latency = Date.now() - t0;
-      const body = `🏓 *Pong!*\n⚡ Speed: *${latency}ms*\n⏱️ Uptime: ${fmtUptime(Math.floor((Date.now() - startAt) / 1000))}`;
+      const body = `┏━━━━「 🏓 *PONG* 」━━━━┓\n│\n│  ⚡ Speed  : *${latency}ms*\n│  ⏱️ Uptime : ${fmtUptime(Math.floor((Date.now() - startAt) / 1000))}\n│  🟢 Status : Online\n│\n┗━━━━━━━━━━━━━━━━━━━━━┛\n\n_${config.BOT_NAME} v${config.BOT_VERSION}_`;
       // edit optional hy — kuch clients/situations me edit support nahi hoti, aur
       // us surat me poora command crash ho jata tha. Ab edit fail ho to naya
       // message bhej dete hain.
