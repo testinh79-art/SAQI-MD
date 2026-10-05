@@ -6,3 +6,4 @@ session/
 sessions/
 auth_info*/
 _*.js
+_disabled_packs/

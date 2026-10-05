@@ -936,7 +936,10 @@ app.get('/livetest', async (req, res) => {
   res.json({ ok: true, sent: text, to: toNum || 'self', replies: replys.slice(0, 4), caps: caps.slice(0, 10), sendErr, sendKey, fromUser: entry.sock.user, toUser: tEntry ? (tEntry.sock.user || null) : null });
 });
 
-app.get('/', (req, res) => res.json({
+// BUG FIX: pehle ye route JSON return karta tha aur portal ki index.html ko
+// shadow kar deta tha — user ko website ke bajaye raw JSON dikhta tha.
+// Ab website serve hoti hy; JSON status /status par chala gaya.
+app.get('/status', (req, res) => res.json({
   bot: config.BOT_NAME,
   status: 'running',
   sessions: sessions.size,
