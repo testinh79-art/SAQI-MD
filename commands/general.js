@@ -187,3 +187,5 @@ module.exports.commands = [
   { name: 'fetch', desc: 'URL fetch', category: 'MAIN', handler },
   { name: 'anime', desc: 'Random anime image', category: 'MAIN', handler },
 ];
+// SPEED: boot par menu category index pehle se bana lo — pehla .menu phir instant hoga.
+module.exports.prewarm = () => { try { collectCommands(); } catch {} };

@@ -167,6 +167,24 @@ global.__SAQI_SESSIONS = sessions;
 let baileysVersion = null;
 // antidelete: har session ke akhri messages ki sada copy (messageId -> info)
 const msgCache = new Map();
+
+// ---------- SPEED: group metadata cache ----------
+// Baileys har GROUP message bhejne se pehle groupMetadata(jid) se participants mangta hy
+// (network round-trip). cachedGroupMetadata dene se wo memory se milta hy — group replies
+// foran jate hain. Entry group-participants.update par invalidate hoti hy (neeche).
+const groupMetaCache = new Map(); // jid -> { data, ts }
+const GROUP_META_TTL = 5 * 60 * 1000;
+const cachedGroupMetadata = async (jid) => {
+  const c = groupMetaCache.get(jid);
+  if (c && Date.now() - c.ts < GROUP_META_TTL) return c.data;
+  const entry = [...sessions.values()].find((e) => e.sock && e.user);
+  if (!entry) return c ? c.data : undefined;
+  try {
+    const data = await entry.sock.groupMetadata(jid);
+    groupMetaCache.set(jid, { data, ts: Date.now() });
+    return data;
+  } catch (e) { return c ? c.data : undefined; }
+};
 const settingsMod = require('./commands/settings.js');
 const { isTransientError, logError, reportToSelf } = require('./lib/errorHeal');
 
@@ -275,6 +293,8 @@ async function startSession(sessionId) {
       retryRequestDelayMs: 80,
       // ANTIBAN: history sync ka poora payload na mango (naye device par bulk fetch = red flag)
       shouldSyncHistoryMessage: () => false,
+      // SPEED: group sends par network round-trip bachao (memory cache, 5 min TTL)
+      cachedGroupMetadata,
       // SPEED/STABILITY: Baileys isse quoting aur retry ke waqt call karta hy. Pehle ye
       // undefined return karta tha, jis se har quoted reply par retry + 250ms delay hota tha.
       // Ab apne cached messages se serve karta hy (retry messages mein bhi).
@@ -403,7 +423,10 @@ async function startSession(sessionId) {
           }
 
           if (m.command) {
-            try { await handleMessage(entry.sock, raw, m); } catch (e) { console.error(`[SAQI-MD] [${sessionId}] message error:`, e); }
+            // SPEED: handler ko await na karo — warna ek hi batch ke saare commands
+            // ek doosre ka intezar karte hain (serial), aur slow command (song/download)
+            // baqi messages ko rok deta hy. Background me dispatch karo.
+            handleMessage(entry.sock, raw, m).catch((e) => console.error(`[SAQI-MD] [${sessionId}] message error:`, e));
             continue;
           }
 
@@ -449,6 +472,7 @@ async function startSession(sessionId) {
 
     // welcome/goodbye: group members aane/jaane par
     entry.sock.ev.on('group-participants.update', async (u) => {
+      groupMetaCache.delete(u.id); // SPEED: cache invalidate — agla send taza metadata lega
       try {
         if (u.action === 'add' && getToggle('welcome')) {
           for (const p of u.participants || []) {
@@ -963,6 +987,12 @@ httpServer.on('error', (e) => {
   try {
     baileysVersion = (await fetchLatestBaileysVersion()).version;
   } catch { baileysVersion = undefined; }
+
+  // SPEED: fuzzy lookup index (43k command names) boot par hi bana lo — warna pehli
+  // unknown/typo command par ~50-90ms extra lagta hy.
+  try { _buildFuzzyIndex(); } catch {}
+  // SPEED: menu category index bhi prewarm (pehla .menu instant)
+  try { require('./commands/general.js').prewarm?.(); } catch {}
 
   if (config.MONGODB_URI) {
     console.log(`[SAQI-MD] multi-user mode (MongoDB) — sessions scan ho rahe hain`);
