@@ -266,13 +266,18 @@ async function startSession(sessionId) {
       browser: Browsers.ubuntu('Chrome'),
       markOnlineOnConnect: getToggle('online') !== false,
       syncFullHistory: false,
-      // SELF-CHAT FIX: ye false tha, aur isi wajah se bot ke apne bheje hue messages ka
-      // `messages.upsert` event fire hi nahi hota tha — self-chat me `.menu` likhne par
-      // kuch nahi hota tha (Baileys messages-send.js:1135 par `if (config.emitOwnEvents)`
-      // check hy). Ab true hy. LOOP GUARD: handleMessage() sirf un fromMe messages ko
-      // chalata hy jinki text PREFIX se shuru ho (aur bot ka apna reply prefix se shuru
-      // nahi hota), is liye infinite loop nahi banega.
-      emitOwnEvents: true,
+      // SELF-CHAT + STABILITY (Oct 5, badla hua): pehle ye false tha (self-chat dead), phir
+      // maine true kiya (self-chat chala, MAGAR 401 logout + 272 Bad MAC errors aa gaye).
+      //
+      // Kyun true khatarnak hy: true karne par bot ke APNE har bheje message ka upsert event
+      // fire hota hy. Us event par libsignal decrypt chalta hy, aur self-send ke waqt session
+      // keys stale hoti hain -> Bad MAC -> Baileys retry -> aur decrypt -> flood. Ye flood
+      // (a) event loop block karta hy (har error par poora stack trace), aur (b) WhatsApp ko
+      // lagta hy ke koi device keys ke sath chhed-chhad kar raha hy -> 401 logout (device unlink).
+      //
+      // Sahi hal: false (stable), aur self-chat ke liye alag rasta neeche banaya hy —
+      // `messages.upsert` par nahi, balke khud ke bheje message par seedha dispatch.
+      emitOwnEvents: false,
       fireInitQueries: true,
       connectTimeoutMs: 60000,
       // SPEED: 15s se 8s — query timeout sirf tab lagta hy jab WhatsApp jawab na de;
@@ -297,6 +302,48 @@ async function startSession(sessionId) {
       // ANTIBAN: phone ko "typing" dikhane wali auto presence sirf tab jab toggle on ho
     });
     entry.sock.ev.on('creds.update', saveCreds);
+
+    // ---------- SELF-CHAT (safe rasta) ----------
+    // emitOwnEvents ko false rakha hy (true karne se Bad MAC flood + 401 logout hua tha).
+    // Self-chat ka kaam ab yahan hota hy: bot jab bhi khud apne number ko message bhejta hy,
+    // hum usi lamhe dispatch kar dete hain — koi decrypt nahi, koi upsert event nahi,
+    // is liye na flood banta hy na loop.
+    // Ye sirf tab chalta hy jab message ka chat == apna hi number ho (self-chat), aur text
+    // PREFIX se shuru ho, aur pehla lafz ek asli command ho (warna hamara hi menu reply
+    // command ban jata aur loop chal parta).
+    if (!entry.__sendWrapped) {
+      entry.__sendWrapped = true;
+      const _origSend = entry.sock.sendMessage.bind(entry.sock);
+      entry.sock.sendMessage = (jid, content, ...rest) => {
+        const p = _origSend(jid, content, ...rest);
+        try {
+          const meNum = String(entry.user || '').split(':')[0].split('@')[0];
+          const toNum = String(jid || '').split('@')[0].split(':')[0];
+          const txt = content?.text;
+          // sirf self-chat + asli command
+          if (meNum && toNum === meNum && typeof txt === 'string' && txt.startsWith(config.PREFIX)) {
+            const firstWord = txt.slice(config.PREFIX.length).trim().split(/\s+/)[0].toLowerCase();
+            const AL = { help: 'menu', cmd: 'menu', commands: 'menu', halp: 'menu', bot: 'menu' };
+            if (commands.has(firstWord) || AL[firstWord]) {
+              const fakeRaw = {
+                key: { remoteJid: `${meNum}@s.whatsapp.net`, fromMe: true, id: `SELF${Date.now()}` },
+                message: { conversation: txt },
+                pushName: 'self',
+              };
+              setImmediate(() => {
+                try {
+                  const mm = smsg(entry.sock, fakeRaw);
+                  mm.isOwner = true;
+                  handleMessage(entry.sock, fakeRaw, mm).catch((e) =>
+                    console.error('[SAQI-MD] self-chat dispatch fail:', e.message));
+                } catch (e) { console.error('[SAQI-MD] self-chat parse fail:', e.message); }
+              });
+            }
+          }
+        } catch {}
+        return p;
+      };
+    }
 
     entry.sock.ev.on('connection.update', (u) => {
       const { connection, lastDisconnect } = u;
@@ -388,9 +435,32 @@ async function startSession(sessionId) {
       // (fromMe) messages ko neeche handleMessage khud filter karta hy (BAE5 guard),
       // is liye loop nahi banega.
       if (type !== 'notify' && type !== 'append') return;
+      // SPEED (badla hua): pehle ye `for...of` tha — matlab WhatsApp jab ek saath 5 messages
+      // bhejta, to bot unhe EK EK KAR KE process karta tha aur har message apne se pehle wale
+      // ka intezar karta. Ek slow message (ya Bad MAC retry flood) poori queue ko rok deta tha.
+      // Ab har message apna alag async kaam hy — sab parallel chalte hain.
       for (const raw of messages) {
+        void (async () => {
         try {
           entry.__lastSeen = Date.now();   // watchdog: traffic aa rahi hy = socket zinda
+          // DEDUPE (SPEED): Bad MAC / decrypt retry ke waqt WhatsApp WAHI message baar baar
+          // bhejta hy. Pehle har copy ka poora processing (smsg + dispatch + reply) chalta tha
+          // — ek message 20 dafa aa jaye to bot 20 dafa kaam karta hy aur queue block ho jati hy.
+          // Ab message id yaad rakhte hain aur 5 min tak wahi id dobara aaye to chhor dete hain.
+          const mid = raw.key?.id;
+          if (mid) {
+            const seenIds = global.__seenMsgIds || (global.__seenMsgIds = new Map());
+            const now = Date.now();
+            if (seenIds.has(mid)) continue;
+            seenIds.set(mid, now);
+            if (seenIds.size > 800) {
+              for (const [k, t] of seenIds) if (now - t > 300000) seenIds.delete(k);
+              if (seenIds.size > 800) { // safai ke baad bhi bara ho to purane nikaal do
+                let n = 0;
+                for (const k of seenIds.keys()) { seenIds.delete(k); if (++n >= 400) break; }
+              }
+            }
+          }
           // delete-revoke protocol message bhi yahan aa sakta hy
           const pm = raw.message?.protocolMessage;
           if (pm && (pm.type === 'REVOKE' || pm.type === 0)) { await handleRevoke(entry, sessionId, { update: { message: { protocolMessage: pm }, key: pm.key } }); continue; }
@@ -413,9 +483,17 @@ async function startSession(sessionId) {
           }
 
           // autoreact: har aam message par reaction
-          if (getToggle('autoreact') && !m.command && !m.isOwner) {
+          // GUARD: emitOwnEvents: true ke baad bot ke APNE bheje messages bhi yahan aate hain.
+          // Pehle sirf `!m.isOwner` tha — magar bot ke apne reactions/replies fromMe hote hain
+          // aur un par dobara react karne se reaction ka infinite loop ban sakta hy. Is liye
+          // fromMe messages aur reaction-type messages par bilkul react nahi karte.
+          const isReactionMsg = !!(raw.message?.reactionMessage);
+          if (getToggle('autoreact') && !m.command && !m.isOwner && !raw.key.fromMe && !isReactionMsg) {
             await entry.sock.sendMessage(m.chat, { react: { text: ['❤️', '🔥', '👍', '😂', '😮', '😢', '🙏'][Math.floor(Math.random() * 7)], key: raw.key } }).catch(() => {});
           }
+
+          // reaction messages: yahan khatam — neeche koi processing nahi
+          if (isReactionMsg) continue;
 
           if (m.command) {
             try { await handleMessage(entry.sock, raw, m); } catch (e) { console.error(`[SAQI-MD] [${sessionId}] message error:`, e); }
@@ -442,6 +520,7 @@ async function startSession(sessionId) {
         } catch (e) {
           console.error(`[SAQI-MD] [${sessionId}] upsert error:`, e.message);
         }
+        })();
       }
     });
     entry.sock.ev.on('messages.update', (ups) => { for (const u of ups) {
