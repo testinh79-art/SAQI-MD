@@ -270,9 +270,13 @@ async function startSession(sessionId) {
       emitOwnEvents: false,
       fireInitQueries: true,
       connectTimeoutMs: 60000,
-      defaultQueryTimeoutMs: 15000,
+      // SPEED: 15s se 8s — query timeout sirf tab lagta hy jab WhatsApp jawab na de;
+      // chhota timeout = fail fast, aur Baileys apni retry se foran dobara try karta hy.
+      defaultQueryTimeoutMs: 8000,
       keepAliveIntervalMs: 25000,
-      retryRequestDelayMs: 80,
+      // SPEED: 80 -> 40ms. Ye sirf retry ke waqt ka gap hy (normal path par asar nahi),
+      // magar jab query fail ho to dobara try foran hota hy.
+      retryRequestDelayMs: 40,
       // ANTIBAN: history sync ka poora payload na mango (naye device par bulk fetch = red flag)
       shouldSyncHistoryMessage: () => false,
       // SPEED/STABILITY: Baileys isse quoting aur retry ke waqt call karta hy. Pehle ye
@@ -372,7 +376,13 @@ async function startSession(sessionId) {
     });
 
     entry.sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      if (type !== 'notify') return;
+      // SELF-CHAT FIX: pehle sirf `type === 'notify'` handle hota tha. WhatsApp jab
+      // bot apne hi number ko message bhejta hy (ya bot khud apne aap ko likhta hy)
+      // to usse `type: 'append'` ke saath deliver karta hy — is liye self-chat me
+      // commands bilkul nahi chalti thin. Ab dono accept hain. Apne bheje hue
+      // (fromMe) messages ko neeche handleMessage khud filter karta hy (BAE5 guard),
+      // is liye loop nahi banega.
+      if (type !== 'notify' && type !== 'append') return;
       for (const raw of messages) {
         try {
           entry.__lastSeen = Date.now();   // watchdog: traffic aa rahi hy = socket zinda
@@ -514,6 +524,16 @@ async function handleMessage(sock, raw, pre) {
   if (!raw.message) return;
   if (raw.key.id.startsWith('BAE5') && raw.key.id.length === 16) return; // bot ka apna bheja hua
   if (raw.key.remoteJid === 'status@broadcast') return;
+  // LOOP GUARD: bot jo khud bhejta hy usse dobara command na samjho. Self-chat me
+  // (`append` type) bot ka apna reply bhi wapas aata hy — agar wo bhi parse ho jaye
+  // to bot apne hi jawab par jawab deta rehta hy (infinite loop). Is liye: apne
+  // bheje hue message ko sirf tab chalao jab usme PREFIX ho (yaani user ne khud
+  // likha ho) — aur agar wo already hamara reply lagta hy to chhor do.
+  if (raw.key.fromMe) {
+    const selfText = raw.message?.conversation || raw.message?.extendedTextMessage?.text || '';
+    // sirf prefix wale messages (asli command) chalenge; baaqi sab (hamare replies) skip
+    if (!String(selfText).startsWith(config.PREFIX)) return;
+  }
 
   const m = pre || smsg(sock, raw); // SPEED: caller ne pehle se smsg kar diya ho to dobara na karo
   if (!m.command) return;

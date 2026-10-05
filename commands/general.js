@@ -58,6 +58,14 @@ async function handler(m, sock) {
         LOGO: '🎨', SETTING: '⚙️', SETTINGS: '⚙️', UTILITY: '📦',
         OTHER: '📁', STUDY: '📚', TEXT: '✍️', GAMES: '🎯', PROD: '📋',
         MISC: '🔧', OPS: '🛠️', BOT: '🤖',
+        // pehle ye missing the — grey diamond ▫️ dikhta tha
+        PRODUCTIVITY: '⚡', AUDIO: '🎵', ADMIN: '🛡️', EXTRA: '📦',
+        SECURITY: '🔒', FILES: '📁', CRYPTO: '💰', ISLAMIC: '🕌',
+        MODERATION: '🛡️', ZODIAC: '♈', SCIENCE: '🔬', FOOD: '🍽️',
+        UNITS: '📐', SOCIAL: '💬', WIKI: '📖', FONT: '🔤',
+        NAMAZ: '🕋', 'GROUP TOOLS': '👥', STATUS: '📊', CONFIG: '⚙️',
+        STICKER: '🖼️', FACTS: '💡', QUOTES: '❝', TEMPERATURE: '🌡️',
+        JOKES: '😂',
       };
       const icon = (c) => catIcon[c] || '▫️';
 
