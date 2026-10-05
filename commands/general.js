@@ -62,9 +62,13 @@ async function handler(m, sock) {
       const icon = (c) => catIcon[c] || '▫️';
 
       if (!m.arg) {
+        // 43k commands me se ~40k DUMMY hain (DISTANCE 14k, CURRENCY 12.5k...).
+        // User ko sirf ASLI kaam wali categories chahiye — is liye 150 se bari
+        // categories bulk me daal di (pehle 300 tha, is liye 200-wale dummy packs
+        // core list me ghus gaye the).
         const sorted = Object.keys(cats).sort((a, b) => cats[b].length - cats[a].length);
-        const core = sorted.filter(c => cats[c].length <= 300);
-        const bulk = sorted.filter(c => cats[c].length > 300);
+        const core = sorted.filter(c => cats[c].length < 150);
+        const bulk = sorted.filter(c => cats[c].length >= 150);
         const L = 32; // box ki andar ki chaurai
 
         const row = (cat) => {
