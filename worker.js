@@ -266,8 +266,13 @@ async function startSession(sessionId) {
       browser: Browsers.ubuntu('Chrome'),
       markOnlineOnConnect: getToggle('online') !== false,
       syncFullHistory: false,
-      // ANTIBAN: presence/typing storms se bacho (WhatsApp spam-detection inhi ko pakarta hy)
-      emitOwnEvents: false,
+      // SELF-CHAT FIX: ye false tha, aur isi wajah se bot ke apne bheje hue messages ka
+      // `messages.upsert` event fire hi nahi hota tha — self-chat me `.menu` likhne par
+      // kuch nahi hota tha (Baileys messages-send.js:1135 par `if (config.emitOwnEvents)`
+      // check hy). Ab true hy. LOOP GUARD: handleMessage() sirf un fromMe messages ko
+      // chalata hy jinki text PREFIX se shuru ho (aur bot ka apna reply prefix se shuru
+      // nahi hota), is liye infinite loop nahi banega.
+      emitOwnEvents: true,
       fireInitQueries: true,
       connectTimeoutMs: 60000,
       // SPEED: 15s se 8s — query timeout sirf tab lagta hy jab WhatsApp jawab na de;
@@ -533,6 +538,16 @@ async function handleMessage(sock, raw, pre) {
     const selfText = raw.message?.conversation || raw.message?.extendedTextMessage?.text || '';
     // sirf prefix wale messages (asli command) chalenge; baaqi sab (hamare replies) skip
     if (!String(selfText).startsWith(config.PREFIX)) return;
+    // EXTRA GUARD: bot ke apne bheje hue messages ka id 'BAE5...' hota hy (upar check),
+    // magar self-chat me hamara hi reply wapas aata hy — usme command ka naam hota hy
+    // (e.g. "┏━ ... MENU ..."). Sirf wohi chalao jiska pehla lafz EK ASLI command ho,
+    // warna bot apne hi menu output ko command samajh kar jawab deta rehta hy.
+    const firstWord = String(selfText).slice(config.PREFIX.length).trim().split(/\s+/)[0].toLowerCase();
+    if (!firstWord || !commands.has(firstWord)) {
+      // alias bhi dekh lo (help -> menu), warna self-chat me aliases nahi chalenge
+      const AL = { help: 'menu', cmd: 'menu', commands: 'menu', halp: 'menu', bot: 'menu' };
+      if (!AL[firstWord]) return;
+    }
   }
 
   const m = pre || smsg(sock, raw); // SPEED: caller ne pehle se smsg kar diya ho to dobara na karo
