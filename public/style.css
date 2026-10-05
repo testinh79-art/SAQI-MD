@@ -63,7 +63,9 @@ body::before {
   display: flex; align-items: center; justify-content: center;
   font-size: 26px;
   box-shadow: 0 8px 24px rgba(34,197,94,.30);
+  overflow: hidden;
 }
+.logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 h1 {
   text-align: center;
