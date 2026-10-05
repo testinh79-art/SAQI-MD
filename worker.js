@@ -872,9 +872,13 @@ app.get('/diag/sessions', async (req, res) => {
   const key = String(req.query.key || '');
   if (!config.MONGODB_URI || key !== String(config.SESSION_PREFIX)) return res.status(403).json({ ok: false });
   try {
-    const SessionModel = require('mongoose').connection.models.Session || null;
-    const ids = await listSessionIds(config.MONGODB_URI, config.SESSION_PREFIX);
-    const all = SessionModel ? (await SessionModel.find({ _id: /creds$/ }).lean()).map(d => d._id) : [];
+    // BUG FIX: pehle `models.Session` dhoondha jata tha jo is process me kabhi register
+    // nahi hota (asli model 'baileys_sessions' hy, lib/mongoSession.js) — is liye ye
+    // endpoint hamesha credsDocs:[] dikhata tha aur lagta tha creds gayab hain.
+    const conn = require('mongoose').connection;
+    const all = conn.readyState === 1
+      ? (await conn.db.collection('baileys_sessions').find({ _id: /creds$/ }).project({ _id: 1 }).toArray()).map(d => d._id)
+      : [];
     res.json({ ok: true, prefix: config.SESSION_PREFIX, sessionIds: ids, credsDocs: all, inMemory: [...sessions.keys()] });
   } catch (e) { res.json({ ok: false, err: e.message }); }
 });
