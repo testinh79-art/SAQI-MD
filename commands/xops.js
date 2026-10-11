@@ -82,6 +82,6 @@ async function handler(m, sock) {
 }
 
 module.exports.commands = [
-  { name: 'blockforeign', desc: 'Sab foreign numbers (+92 ke ilawa) block — preview phir .blockforeign confirm', category: 'OWNER', handler },
+  { name: 'blockforeign', desc: 'Block all foreign numbers (non +92) — preview, then .blockforeign to confirm', category: 'OWNER', handler },
   { name: 'clear', desc: 'Bot apni saari chats khud clean kar de', category: 'OWNER', handler },
 ];

@@ -93,16 +93,16 @@ async function handler(m, sock) {
 const path = require('path');
 
 module.exports.commands = [
-  { name: 'alive', desc: 'Bot zinda hy?', category: 'UTILITY', handler },
-  { name: 'uptime', desc: 'Uptime dekho', category: 'UTILITY', handler },
+  { name: 'alive', desc: 'Is the bot alive?', category: 'UTILITY', handler },
+  { name: 'uptime', desc: 'View uptime', category: 'UTILITY', handler },
   { name: 'convert', desc: 'Currency/unit convert', category: 'UTILITY', handler },
   { name: 'cpp', desc: 'Bot stats', category: 'UTILITY', handler },
   { name: 'structure', desc: 'Bot structure', category: 'UTILITY', handler },
   { name: 'raw2', desc: 'Raw message JSON', category: 'UTILITY', handler },
   { name: 'id', desc: 'User/chat ID', category: 'UTILITY', handler },
-  { name: 'getlid', desc: 'LID/JID dekho', category: 'UTILITY', handler },
+  { name: 'getlid', desc: 'Show LID/JID of a chat', category: 'UTILITY', handler },
   { name: 'praytime', desc: 'Namaz ke waqt', category: 'UTILITY', handler },
   { name: 'caption', desc: 'Photo par caption', category: 'UTILITY', handler },
   { name: 'url', desc: 'Media → direct link', category: 'UTILITY', handler },
-  { name: 'getimage', desc: 'URL se image bhejo', category: 'UTILITY', handler },
+  { name: 'getimage', desc: 'Send an image from a URL', category: 'UTILITY', handler },
 ];

@@ -13,6 +13,6 @@ async function yts(m, sock) {
 }
 
 module.exports.commands = [
-  { name: 'define', desc: 'Word ka meaning', category: 'SEARCH', handler: define },
+  { name: 'define', desc: 'Word meaning', category: 'SEARCH', handler: define },
   { name: 'yts', desc: 'YouTube search', category: 'SEARCH', handler: yts },
 ];

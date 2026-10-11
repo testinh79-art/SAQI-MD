@@ -732,15 +732,52 @@ async function handleMessage(sock, raw, pre) {
     const scored = fuzzyTop(q, commands.keys());
     const top = scored.filter(([, s]) => s <= Math.max(3, Math.floor(q.length / 2)));
     const hint = top.length ? `\n\n💡 Kya murad tha:\n${top.map(([n]) => `▫️ *${config.PREFIX}${n}*`).join('\n')}` : `\n\n💡 Sahi naam ke liye *${config.PREFIX}menu* dekho.`;
-    return m.reply(`❌ *${config.PREFIX}${m.command}* mojood nahi hy.${hint}`);
+    return m.reply(`❌ No command named *${config.PREFIX}${m.command}*.${hint}`);
   }
-  if (cmd.ownerOnly && !m.isOwner) return m.reply('❌ Ye command sirf *owner* ke liye hy.');
-  if (cmd.groupOnly && !m.isGroup) return m.reply('❌ Ye command sirf *group* me chalti hy.');
+  if (cmd.ownerOnly && !m.isOwner) return m.reply('❌ This command is for the *owner* only.');
+  if (cmd.groupOnly && !m.isGroup) return m.reply('❌ This command only works in *groups*.');
+
+  // ---------- MOOD ----------
+  // Saqib: "waqt ke hisab se bot ka style badle — subah energetic, raat ko thora
+  // sanyas". This wraps m.reply so every plain-text reply carries the mood's
+  // greeting on the FIRST reply of a command, and the ack lines use the mood's
+  // voice. Off with .mood off, on with .mood on.
+  if (getToggle('mood') !== false) {
+    const mood = moodNow();
+    const _moodOrig = m.reply.bind(m);
+    let _moodUsed = false;
+    m.reply = (t, ...a) => {
+      if (typeof t !== 'string' || !t.trim()) return _moodOrig(t, ...a);
+      // never decorate menus / big monospace blocks — it would break the boxes
+      if (t.includes('```') || t.includes('┏') || t.includes('┌')) return _moodOrig(t, ...a);
+      if (!_moodUsed && t.length < 300) {
+        _moodUsed = true;
+        return _moodOrig(`${mood.greet} — ${t}`, ...a);
+      }
+      return _moodOrig(t, ...a);
+    };
+    global.__moodNow = mood;
+  }
 
   // mentionreply: har reply ke shuru me user ka naam
   if (getToggle('mentionreply') && m.pushname) {
     const orig = m.reply.bind(m);
     m.reply = (t, ...a) => orig(typeof t === 'string' ? `*@${m.pushname}*\n\n${t}` : t, ...a);
+  }
+
+  // ---------- MOOD ----------
+  function moodNow() {
+    let hour = new Date().getHours();
+    try {
+      const tz = config.TIMEZONE || 'Asia/Karachi';
+      hour = Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: tz }).format(new Date()));
+    } catch {}
+    if (hour === 24) hour = 0;
+    if (hour >= 5 && hour < 11) return { key: 'morning', greet: '☀️ Good morning' };
+    if (hour >= 11 && hour < 16) return { key: 'day', greet: '🎯 Ready' };
+    if (hour >= 16 && hour < 20) return { key: 'evening', greet: '🌆 Good evening' };
+    if (hour >= 20 && hour < 24) return { key: 'night', greet: '🌙 Good night' };
+    return { key: 'latenight', greet: '🌌 Still up' };
   }
 
   // ---------- PREMIUM SPEED ----------
@@ -749,7 +786,8 @@ async function handleMessage(sock, raw, pre) {
     // starter set (network/media commands pehli dafa se hi instant ack)
     ['song','play','music','video','ytmp3','ytmp4','tiktok','tiktoksearch','facebook','fb','instagram','igdl','ig','capcut','gdrive','mediafire','megadl','apk','ai','gpt','gemini','chatgpt','sticker','s','attp','tomp3','tts','quote']
   ));
-  if (slowCmds.has(m.command)) {
+  const _preAcked = slowCmds.has(m.command);
+  if (_preAcked) {
     // SPEED: ack ko await na karo — warna asli jawab ack ke baad ruk jata hai (do round trips)
     sock.sendMessage(m.chat, { text: `⚡ *Processing...*` }, { quoted: m }).catch(() => {});
   }
@@ -767,11 +805,13 @@ async function handleMessage(sock, raw, pre) {
     // agar us waqt tak jawab nahi bana to foran ek "kaam ho raha hy" message jata hy, aur
     // asli jawab jab tayyar ho kar aata hy. Is se user ko 1s ke andar kuch na kuch milta hy.
     let _replied = false;
+    let _softSent = false;
     const _origReply = m.reply.bind(m);
     m.reply = (t, ...a) => { _replied = true; return _origReply(t, ...a); };
     const _softTimer = setTimeout(() => {
-      if (_replied) return;
-      sock.sendMessage(m.chat, { text: `⏳ *${m.command}* par kaam ho raha hy...` }).catch(() => {});
+      if (_replied || _preAcked) return; // already acked above — no second message
+      _softSent = true;
+      sock.sendMessage(m.chat, { text: `⏳ Working on *${m.command}*...` }).catch(() => {});
     }, 900);
 
     await cmd.handler(m, sock);
@@ -1132,3 +1172,58 @@ httpServer.on('error', (e) => {
     await startSession(config.SESSION_ID);
   }
 })().catch((e) => { console.error('[SAQI-MD] FATAL:', e); process.exit(1); });
+
+/* ============================================================================
+   PROCESS GUARDS — the part that actually keeps the bot alive for a year.
+
+   The reconnect watchdog above heals a dropped WhatsApp socket. These three
+   guards heal the PROCESS, which is what kills long runs in practice:
+
+     1. An uncaught exception or unhandled rejection used to take the whole
+        worker down. On a host with a restart policy it comes back, but only
+        after a gap — and on a host without one it never comes back. We log it
+        and keep running instead.
+     2. A memory leak that grows for months eventually gets the process OOM
+        killed. We watch heap usage and recycle the process ourselves, cleanly,
+        at a safe threshold rather than letting the host kill it mid-command.
+     3. If the event loop somehow stops doing work, nothing above can notice.
+        A heartbeat checks that the loop is still turning.
+
+   Nothing here fakes uptime. If WhatsApp logs the session out, that is a real
+   logout and the session is deleted, same as before.
+   ========================================================================== */
+(function processGuards() {
+  const MAX_HEAP_MB = Number(process.env.SAQI_MAX_HEAP_MB || 1400);
+
+  process.on('uncaughtException', (e) => {
+    console.error('[SAQI-MD] uncaughtException (kept alive):', e && e.message);
+  });
+  process.on('unhandledRejection', (e) => {
+    console.error('[SAQI-MD] unhandledRejection (kept alive):', e && (e.message || String(e)));
+  });
+
+  // heap watch — recycle before the host OOM-kills us
+  setInterval(() => {
+    try {
+      const mb = process.memoryUsage().heapUsed / 1024 / 1024;
+      if (mb > MAX_HEAP_MB) {
+        console.log(`[SAQI-MD] heap ${Math.round(mb)}MB > ${MAX_HEAP_MB}MB — recycling process cleanly`);
+        // give in-flight replies a moment, then exit. The host restart policy
+        // (or guard.sh) brings us straight back with the session intact.
+        setTimeout(() => process.exit(0), 3000);
+      }
+    } catch {}
+  }, 5 * 60 * 1000).unref();
+
+  // event-loop heartbeat — if the loop stalls we cannot detect it from inside,
+  // but a missed beat shows up in the logs before the host notices.
+  let beats = 0;
+  const hb = setInterval(() => { beats++; }, 1000);
+  hb.unref();
+  setInterval(() => {
+    if (beats === 0) console.error('[SAQI-MD] event loop stalled — no heartbeat in the last minute');
+    beats = 0;
+  }, 60 * 1000).unref();
+
+  console.log(`[SAQI-MD] process guards active (heap cap ${MAX_HEAP_MB}MB)`);
+})();

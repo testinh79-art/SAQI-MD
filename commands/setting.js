@@ -58,14 +58,14 @@ async function handler(m, sock) {
 }
 
 module.exports.commands = [
-  { name: 'privacy', desc: 'Privacy settings dekho', category: 'SETTING', handler },
+  { name: 'privacy', desc: 'View privacy settings', category: 'SETTING', handler },
   { name: 'blocklist', desc: 'Blocked numbers', category: 'SETTING', handler },
-  { name: 'getbio', desc: 'Kisi ki bio (reply/number)', category: 'SETTING', handler },
-  { name: 'updatebio', desc: 'Bot ki bio badlo', category: 'SETTING', handler },
-  { name: 'setname', desc: 'Bot ka naam badlo', category: 'SETTING', handler },
-  { name: 'setppall', desc: 'Bot ki DP lagao (reply)', category: 'SETTING', handler },
+  { name: 'getbio', desc: 'View a bio (reply/number)', category: 'SETTING', handler },
+  { name: 'updatebio', desc: 'Change bot bio', category: 'SETTING', handler },
+  { name: 'setname', desc: 'Change bot name', category: 'SETTING', handler },
+  { name: 'setppall', desc: 'Set bot display picture (reply)', category: 'SETTING', handler },
   { name: 'setonline', desc: 'Online status info', category: 'SETTING', handler },
   { name: 'groupsprivacy', desc: 'Group add privacy', category: 'SETTING', handler },
   { name: 'groupprivacy', desc: 'Group add privacy', category: 'SETTING', handler },
-  { name: 'getprivacy', desc: 'Privacy settings dekho', category: 'SETTING', handler },
+  { name: 'getprivacy', desc: 'View privacy settings', category: 'SETTING', handler },
 ];

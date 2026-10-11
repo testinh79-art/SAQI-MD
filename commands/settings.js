@@ -153,12 +153,72 @@ module.exports.setAntidelMode = (v) => { antidelMode.v = v === 'inbox' ? 'inbox'
 module.exports.snapshot = snapshot;
 module.exports.restore = restore;
 module.exports.setOnPersist = (f) => { onPersist = f; };
+async function moodHandler(m, sock) {
+  const config = require('../config');
+  const arg = (m.arg || '').trim().toLowerCase();
+  const MOODS = [
+    { from: 5,  to: 11, label: 'Energetic  ☀️' },
+    { from: 11, to: 16, label: 'Focused  🎯' },
+    { from: 16, to: 20, label: 'Warm  🌆' },
+    { from: 20, to: 24, label: 'Calm  🌙' },
+    { from: 0,  to: 5,  label: 'Quiet  🌌' },
+  ];
+  let hour = new Date().getHours();
+  try {
+    const tz = config.TIMEZONE || 'Asia/Karachi';
+    hour = Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: tz }).format(new Date()));
+  } catch {}
+  if (hour === 24) hour = 0;
+  const now = MOODS.find(x => hour >= x.from && hour < x.to) || MOODS[1];
+
+  if (arg === 'on' || arg === 'off') {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const f = path.join(__dirname, '..', 'data', 'toggles.json');
+      let t = {};
+      try { t = JSON.parse(fs.readFileSync(f, 'utf8')); } catch {}
+      t.mood = arg === 'on';
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f, JSON.stringify(t, null, 2));
+    } catch (e) {}
+    global.__moodOff = arg === 'off';
+    return m.reply(arg === 'on'
+      ? `✅ *Mood* is ON — replies will follow the time of day.`
+      : `✅ *Mood* is OFF — replies stay neutral.`);
+  }
+
+  const schedule = [
+    '05:00 – 10:59   Energetic  ☀️',
+    '11:00 – 15:59   Focused  🎯',
+    '16:00 – 19:59   Warm  🌆',
+    '20:00 – 23:59   Calm  🌙',
+    '00:00 – 04:59   Quiet  🌌',
+  ].join('\n');
+
+  return m.reply(
+    `┏━━━━「 🌙 *BOT MOOD* 」━━━━┓\n` +
+    `│\n` +
+    `│  Now      :  *${now.label}*\n` +
+    `│  Timezone :  ${config.TIMEZONE || 'Asia/Karachi'}\n` +
+    `│  Local    :  ${String(hour).padStart(2, '0')}:00\n` +
+    `│\n` +
+    `┗━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n` +
+    `*Schedule*\n${schedule}\n\n` +
+    `The bot greets in its own voice based on the hour, so mornings feel\n` +
+    `energetic and late nights stay calm.\n\n` +
+    `▸ *${config.PREFIX}mood on*  — enable\n` +
+    `▸ *${config.PREFIX}mood off* — disable`
+  );
+}
+
 module.exports.commands = [
+  { name: 'mood', desc: 'Bot mood by time of day', category: 'SETTINGS', handler: moodHandler },
   ...TOGGLE_NAMES.map(n => ({ name: n, desc: `${n} ON/OFF`, category: 'SETTINGS', handler })),
-  { name: 'sudo', desc: 'Sudo user add', category: 'SETTINGS', handler },
-  { name: 'delsudo', desc: 'Sudo hatao', category: 'SETTINGS', handler },
-  { name: 'listsudo', desc: 'Sudo list', category: 'SETTINGS', handler },
-  { name: 'botdp', desc: 'Bot DP lagao (reply)', category: 'SETTINGS', handler },
+  { name: 'sudo', desc: 'Add a sudo user', category: 'SETTINGS', handler },
+  { name: 'delsudo', desc: 'Remove a sudo user', category: 'SETTINGS', handler },
+  { name: 'listsudo', desc: 'List sudo users', category: 'SETTINGS', handler },
+  { name: 'botdp', desc: 'Set bot display picture (reply)', category: 'SETTINGS', handler },
   { name: 'welcome', desc: 'Welcome ON/OFF', category: 'SETTINGS', handler },
   { name: 'goodbye', desc: 'Goodbye ON/OFF', category: 'SETTINGS', handler },
   { name: 'setwelcome', desc: 'Welcome text set', category: 'SETTINGS', handler },
@@ -166,13 +226,13 @@ module.exports.commands = [
   { name: 'mode', desc: 'public/private mode', category: 'SETTINGS', handler },
   { name: 'antidelmode', desc: 'antidelete destination: chat/inbox', category: 'SETTINGS', handler },
   { name: 'prefix', desc: 'Prefix change', category: 'SETTINGS', handler },
-  { name: 'botname', desc: 'Bot ka naam', category: 'SETTINGS', handler },
-  { name: 'ownername', desc: 'Owner ka naam', category: 'SETTINGS', handler },
+  { name: 'botname', desc: 'Bot name', category: 'SETTINGS', handler },
+  { name: 'ownername', desc: 'Owner name', category: 'SETTINGS', handler },
   { name: 'ownernumber', desc: 'Owner number add', category: 'SETTINGS', handler },
   { name: 'description', desc: 'Bot description', category: 'SETTINGS', handler },
   { name: 'stickername', desc: 'Sticker author name', category: 'SETTINGS', handler },
   { name: 'delpath', desc: 'Cache clear', category: 'SETTINGS', handler },
-  { name: 'reactemojis', desc: 'Reaction pool dekho', category: 'SETTINGS', handler },
+  { name: 'reactemojis', desc: 'View reaction pool', category: 'SETTINGS', handler },
   { name: 'owneremojis', desc: 'Owner reactions', category: 'SETTINGS', handler },
-  { name: 'settings', desc: 'Sab settings dekho', category: 'SETTINGS', handler },
+  { name: 'settings', desc: 'View all settings', category: 'SETTINGS', handler },
 ];

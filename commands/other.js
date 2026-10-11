@@ -33,10 +33,10 @@ async function unban(m, sock) {
 }
 
 module.exports.commands = [
-  { name: 'getpp', desc: 'Kisi ki DP dekho (reply/number)', category: 'OTHER', handler: getpp },
+  { name: 'getpp', desc: 'View a profile picture (reply/number)', category: 'OTHER', handler: getpp },
   { name: 'mee', desc: 'Tumhari random fact', category: 'OTHER', handler: mee },
-  { name: 'srepo', desc: 'Bot ka source repo', category: 'OTHER', handler: (m) => m.reply(`🗂️ *SAQI-MD Source:*\nhttps://github.com/badb54880-spec/SAQI-MD`) },
-  { name: 'gpass', desc: 'Strong password banao', category: 'OTHER', handler: gpass },
+  { name: 'srepo', desc: 'Bot source repository', category: 'OTHER', handler: (m) => m.reply(`🗂️ *SAQI-MD Source:*\nhttps://github.com/badb54880-spec/SAQI-MD`) },
+  { name: 'gpass', desc: 'Generate a strong password', category: 'OTHER', handler: gpass },
   ...['anime1', 'anime2', 'anime3', 'anime4', 'anime5'].map(n => ({ name: n, desc: 'Random anime image', category: 'OTHER', handler: animeN })),
   ...Array.from({ length: 100 }, (_, i) => ({ name: `unban${i}`, desc: 'Unban check', category: 'OTHER', handler: unban })),
 ];
