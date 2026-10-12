@@ -862,6 +862,30 @@ function pairModel() {
 const fmtCode = (c) => String(c).match(/.{1,4}/g).join('-');
 let pairingBusy = false;
 
+async function processLocalPairQueue() {
+  try {
+    const q = global.__SAQI_PAIR_QUEUE;
+    if (!q || !q.size) return;
+    for (const [id, e] of [...q.entries()]) {
+      if (Date.now() - e.createdAt > 5 * 60 * 1000) { q.delete(id); continue; }
+      if (e.status !== 'pending') continue;
+      const entry = [...sessions.values()].find(s => s.sock && s.user);
+      if (!entry) continue; // koi live socket nahi — agla cycle dekhega
+      e.status = 'connecting';
+      entry.sock.requestPairingCode(e.number)
+        .then((code) => {
+          e.code = String(code).match(/.{1,4}/g).join('-');
+          e.status = 'ready';
+          console.log(`[PAIR-REQ] ${e.number} -> ${e.code}`);
+        })
+        .catch((err) => {
+          e.status = 'error';
+          console.log(`[PAIR-REQ] ${e.number} fail: ${err.message}`);
+        });
+    }
+  } catch (e) { console.log('[PAIR-REQ] loop err:', e.message); }
+}
+
 async function processPairQueue() {
   if (!config.MONGODB_URI || pairingBusy) return;
   pairingBusy = true;
@@ -1009,6 +1033,8 @@ app.get('/health', (req, res) => {
 // NOTE: `app.use(require('./server'))` galat tha — wo export ek Vercel-style handler hy jo
 // `next()` call nahi karta, is liye ye file ke BAAD wale sab routes (/health, /diag/*) dead
 // ho jate the. Ab asli Express app mount hota hy (async, is liye ek chhota bridge).
+// Oct 12: portal isse queue me request dalta hy (file mode me clashing socket se bachne ke liye)
+global.__SAQI_PAIR_QUEUE = global.__SAQI_PAIR_QUEUE || new Map();
 const portal = require('./server');
 if (portal && portal.expressApp) {
   portal.expressApp().then((portalApp) => {
@@ -1129,6 +1155,7 @@ httpServer.on('error', (e) => {
     // timeout = "3 second lag"). Ab 3s — naya session lagbhag foran uth jata hai.
     setInterval(syncSessions, 3 * 1000).unref();
     setInterval(processPairQueue, 1000).unref(); // pairing requests (portal queue se) — fast pickup
+    setInterval(processLocalPairQueue, 1000).unref(); // file mode: portal-memory queue
 
     // ---------- WATCHDOG (2-month reliability) ----------
     // Masla: session "zinda" dikhta hy magar socket silently mar chuka hota hy
@@ -1169,6 +1196,7 @@ httpServer.on('error', (e) => {
     }, 60 * 1000).unref();
   } else {
     console.log(`[SAQI-MD] single-session file mode (MONGODB_URI nahi diya gaya)`);
+    setInterval(processLocalPairQueue, 1000).unref(); // file mode: portal-memory pairing queue
     await startSession(config.SESSION_ID);
   }
 })().catch((e) => { console.error('[SAQI-MD] FATAL:', e); process.exit(1); });

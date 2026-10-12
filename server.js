@@ -206,6 +206,15 @@ async function getApp() {
         );
         return res.json({ ok: true, id: number, code: null, status: 'pending' });
       }
+      // WORKER-MOUNT MODE (Oct 12 fix): jab portal worker ke andar mount ho (file mode),
+      // portal ka apna socket worker ke ./session se takrata hy -> "Connection Closed".
+      // Ab request memory queue me jaati hy aur ASLI code worker banata hy (uska socket live hy).
+      if (global.__SAQI_PAIR_QUEUE) {
+        const id = crypto.randomBytes(8).toString('hex');
+        global.__SAQI_PAIR_QUEUE.set(id, { id, number, status: 'pending', code: null, createdAt: Date.now() });
+        console.log(`[PAIR-REQ] ${number} -> worker queue (id ${id})`);
+        return res.json({ ok: true, id, code: null, status: 'pending' });
+      }
       const entry = await createPairing(number);
       // FAST PATH: agar code pehle hi ban gaya to foran wapis do (front-end ko
       // ek bhi poll cycle ka intezar nahi karna padega).
@@ -239,6 +248,10 @@ async function getApp() {
   });
 
   app.get('/api/status/:id', async (req, res) => {
+    if (global.__SAQI_PAIR_QUEUE) {
+      const e = global.__SAQI_PAIR_QUEUE.get(String(req.params.id));
+      if (e) return res.json({ ok: true, id: e.id, status: e.status, code: e.code, linked: e.status === 'linked' });
+    }
     try {
       if (config.MONGODB_URI) {
         const PR = await queueDB();
