@@ -1,0 +1,29 @@
+name: saqi-md-bot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */5 * * *"
+
+concurrency:
+  group: saqi-md-bot
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: install
+        run: npm install --no-audit --no-fund
+      - name: run bot
+        env:
+          MONGODB_URI: ""
+          BOT_NAME: ${{ secrets.BOT_NAME }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OWNER_NUMBERS: ${{ secrets.OWNER_NUMBERS }}
+        run: timeout 20800 node worker.js || true
