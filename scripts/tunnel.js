@@ -3,7 +3,7 @@ const lt = require('localtunnel');
 const PORT = Number(process.env.PORT || 3000);
 (async () => {
   try {
-    const SUB = process.env.TUNNEL_SUB || 'saqi-md-pair';
+    const SUB = process.env.TUNNEL_SUB || 'saqimdpair';
     const t = await lt({ port: PORT, subdomain: SUB });
     console.log('[TUNNEL] PUBLIC_URL=' + t.url);
     t.on('close', () => { console.log('[TUNNEL] closed'); process.exit(0); });
