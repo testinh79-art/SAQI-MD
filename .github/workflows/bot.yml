@@ -9,6 +9,9 @@ concurrency:
   group: saqi-md-bot
   cancel-in-progress: false
 
+permissions:
+  contents: write
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -38,6 +41,11 @@ jobs:
           cloudflared tunnel --url http://localhost:3000 --no-autoupdate > /tmp/cf.log 2>&1 &
           TUN=$!
           sleep 15
-          grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cf.log | head -1 | sed 's/^/[PAIR-URL] /' || echo '[PAIR-URL] nahi bana'
+          for i in $(seq 1 20); do U=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cf.log | head -1); [ -n "$U" ] && break; sleep 3; done
+          echo "[PAIR-URL] $U"
+          node scripts/publish-url.js "$U"
+          git config user.email bot@local; git config user.name saqi-bot
+          git add PAIR-URL.json && git commit -q -m "pair url: $U" || true
+          git push -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" HEAD:main || true
           timeout 20500 tail --pid=$BOT -f /dev/null || true
           kill $TUN 2>/dev/null || true
