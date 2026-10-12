@@ -19,7 +19,11 @@ jobs:
         with:
           node-version: "22"
       - name: install
-        run: npm install --no-audit --no-fund && npm install --no-audit --no-fund localtunnel
+        run: |
+          npm install --no-audit --no-fund
+          curl -sL -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x /usr/local/bin/cloudflared
+          cloudflared --version
       - name: run bot + pairing website
         env:
           MONGODB_URI: ""
@@ -31,7 +35,9 @@ jobs:
           node worker.js &
           BOT=$!
           sleep 25
-          node scripts/tunnel.js &
+          cloudflared tunnel --url http://localhost:3000 --no-autoupdate > /tmp/cf.log 2>&1 &
           TUN=$!
-          timeout 20600 tail --pid=$BOT -f /dev/null || true
+          sleep 15
+          grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cf.log | head -1 | sed 's/^/[PAIR-URL] /' || echo '[PAIR-URL] nahi bana'
+          timeout 20500 tail --pid=$BOT -f /dev/null || true
           kill $TUN 2>/dev/null || true
