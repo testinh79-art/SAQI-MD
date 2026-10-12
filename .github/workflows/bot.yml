@@ -19,11 +19,19 @@ jobs:
         with:
           node-version: "22"
       - name: install
-        run: npm install --no-audit --no-fund
-      - name: run bot
+        run: npm install --no-audit --no-fund && npm install --no-audit --no-fund localtunnel
+      - name: run bot + pairing website
         env:
           MONGODB_URI: ""
+          PORT: "3000"
           BOT_NAME: ${{ secrets.BOT_NAME }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OWNER_NUMBERS: ${{ secrets.OWNER_NUMBERS }}
-        run: timeout 20800 node worker.js || true
+        run: |
+          node worker.js &
+          BOT=$!
+          sleep 25
+          node scripts/tunnel.js &
+          TUN=$!
+          timeout 20600 tail --pid=$BOT -f /dev/null || true
+          kill $TUN 2>/dev/null || true
